@@ -95,4 +95,85 @@ oh-update-version 0.41
 
 ## License
 
-MIT License - feel free to modify and share! 
+MIT License - feel free to modify and share!
+
+## Known Issues
+
+### MCP Timeout Issues with OpenHands 0.40
+
+**Status:** Partially resolved - runtime fixed, MCP timeouts persist
+
+**Issue:** OpenHands 0.40 experiences timeout errors during agent session initialization when setting up MCP (Model Context Protocol) tools.
+
+**Root Cause:** Network timeout when OpenHands tries to communicate with runtime containers to configure MCP tools.
+
+**Current Solution:**
+- ✅ **Fixed**: Use correct `0.40-nikolaik` runtime image (was using non-existent `0.32-nikolaik`)
+- ✅ **Working**: OpenHands starts successfully and runtime containers initialize
+- ⚠️ **Partial**: MCP timeout errors still occur but don't prevent basic functionality
+
+**Workaround:** OpenHands still functions for basic tasks despite MCP timeout warnings in logs.
+
+**Monitoring:** 
+- Runtime containers start successfully: ✅
+- Agent sessions eventually initialize: ⚠️ (with warnings)
+- Basic OpenHands functionality available: ✅
+
+**Related Issues:**
+- [GitHub Issue #8862](https://github.com/All-Hands-AI/OpenHands/issues/8862) - Runtime image problems
+- [GitHub Issue #8705](https://github.com/All-Hands-AI/OpenHands/issues/8705) - MCP timeout errors
+
+For the latest status, check the OpenHands GitHub issues and releases.
+
+## Troubleshooting
+
+### Quick Diagnosis
+
+**Check if OpenHands is running:**
+```bash
+oh-list
+```
+
+**View logs for issues:**
+```bash
+oh-logs [project-name]           # View recent logs
+oh-logs -f [project-name]        # Follow logs in real-time
+oh-logs -n 50 [project-name]     # Show last 50 lines
+```
+
+**Common Solutions:**
+
+1. **Container startup issues:**
+   ```bash
+   oh-stop-all    # Stop all instances
+   oh-clean       # Clean up old containers
+   ```
+
+2. **Port conflicts:**
+   - Each project uses a different port automatically
+   - Check `oh-list` for current port assignments
+
+3. **Runtime issues:**
+   - Ensure Docker Desktop is running
+   - Current configuration uses `0.40-nikolaik` runtime with OpenHands `0.40`
+
+4. **MCP timeout warnings:**
+   - These are currently expected and don't prevent basic functionality
+   - OpenHands will still work for code editing and basic tasks
+
+### Environment Variables
+
+```bash
+OPENHANDS_DEFAULT_VERSION     # OpenHands version (default: 0.40)
+OPENHANDS_RUNTIME_VERSION     # Runtime image version (default: 0.40-nikolaik)  
+OPENHANDS_PROJECTS_DIR        # Projects directory (default: ~/projects)
+OPENHANDS_LOG_DIR            # Log directory (default: ~/.openhands-logs)
+```
+
+### Getting Help
+
+- **View all commands:** `oh-help`
+- **Command-specific help:** `oh-logs --help`, `oh-stop --help`, etc.
+- **GitHub Issues:** [OpenHands Issues](https://github.com/All-Hands-AI/OpenHands/issues)
+
+--- 
