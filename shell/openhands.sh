@@ -552,7 +552,37 @@ _oh_complete() {
     fi
     
     projects=($_OH_PROJECTS_CACHE)
-    _describe 'project' projects
+    
+    # Handle completion differently for zsh vs bash
+    if [[ -n "$ZSH_VERSION" ]]; then
+        _describe 'project' projects
+    elif [[ -n "$BASH_VERSION" ]]; then
+        COMPREPLY=($(compgen -W "${projects[*]}" -- "${COMP_WORDS[COMP_CWORD]}"))
+    fi
+}
+
+# Bash completion function for OpenHands commands
+_oh_complete_bash() {
+    local cur="${COMP_WORDS[COMP_CWORD]}"
+    local -a projects
+    local current_time=$(date +%s)
+    local cache_age=$((current_time - _OH_PROJECTS_CACHE_TIME))
+    
+    # Refresh cache if it's older than 60 seconds or empty
+    if [[ ${#_OH_PROJECTS_CACHE[@]} -eq 0 ]] || [[ $cache_age -gt 60 ]]; then
+        _OH_PROJECTS_CACHE=($(find "$OPENHANDS_PROJECTS_DIR" \
+            -name ".git" -type d \
+            -not -path "*/.history/*" \
+            -prune \
+            2>/dev/null | \
+            sed 's|/\.git$||' | \
+            sed "s|^$OPENHANDS_PROJECTS_DIR/||" | \
+            grep -v "^$" | \
+            sort))
+        _OH_PROJECTS_CACHE_TIME=$current_time
+    fi
+    
+    COMPREPLY=($(compgen -W "${_OH_PROJECTS_CACHE[*]}" -- "$cur"))
 }
 
 # Function to refresh the project cache manually
@@ -564,6 +594,11 @@ oh-refresh-cache() {
 
 # Enable tab completion for the commands (zsh)
 if [[ -n "$ZSH_VERSION" ]]; then
+    # Ensure completion system is loaded
+    autoload -Uz compinit
+    compinit -d ~/.zcompdump-$ZSH_VERSION
+    
+    # Set up completions for all commands
     compdef _oh_complete oh
     compdef _oh_complete oh-stop
     compdef _oh_complete ohcd
@@ -572,7 +607,13 @@ if [[ -n "$ZSH_VERSION" ]]; then
     compdef _oh_complete oh-logs
 fi
 
-# Bash completion would go here if needed
-# if [[ -n "$BASH_VERSION" ]]; then
-#     # Bash completion setup
-# fi 
+# Enable tab completion for the commands (bash)
+if [[ -n "$BASH_VERSION" ]]; then
+    # Set up completions for all commands
+    complete -F _oh_complete_bash oh
+    complete -F _oh_complete_bash oh-stop
+    complete -F _oh_complete_bash ohcd
+    complete -F _oh_complete_bash oh-save
+    complete -F _oh_complete_bash oh-version
+    complete -F _oh_complete_bash oh-logs
+fi 
