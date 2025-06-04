@@ -11,6 +11,8 @@ OH_REPO_DIR="$(dirname "$OH_SCRIPT_DIR")"
 
 # Configuration
 export OPENHANDS_DEFAULT_VERSION="${OPENHANDS_DEFAULT_VERSION:-0.40}"
+# Use the correct runtime version that matches OpenHands 0.40
+export OPENHANDS_RUNTIME_VERSION="${OPENHANDS_RUNTIME_VERSION:-0.40-nikolaik}"
 export OPENHANDS_PROJECTS_DIR="${OPENHANDS_PROJECTS_DIR:-$HOME/projects}"
 export OPENHANDS_LOG_DIR="${OPENHANDS_LOG_DIR:-$HOME/.openhands-logs}"
 export OPENHANDS_LOG_RETENTION_DAYS="${OPENHANDS_LOG_RETENTION_DAYS:-30}"
@@ -165,14 +167,15 @@ oh() {
     echo "${OH_BLUE}🚀 Starting OpenHands for $project_display_name...${OH_RESET}"
     echo "📁 Project: $absolute_project_path"
     echo "🔌 Port: $port"
-    echo "🏷️  Version: $OPENHANDS_DEFAULT_VERSION"
+    echo "🏷️  Version: $OPENHANDS_DEFAULT_VERSION (runtime: $OPENHANDS_RUNTIME_VERSION)"
     echo "📝 Log file: $log_file"
     
     if docker run -d --rm \
-        -e SANDBOX_RUNTIME_CONTAINER_IMAGE=docker.all-hands.dev/all-hands-ai/runtime:${OPENHANDS_DEFAULT_VERSION}-nikolaik \
+        -e SANDBOX_RUNTIME_CONTAINER_IMAGE=docker.all-hands.dev/all-hands-ai/runtime:${OPENHANDS_RUNTIME_VERSION} \
         -e SANDBOX_USER_ID=$(id -u) \
         -e SANDBOX_VOLUMES="$absolute_project_path:/workspace:rw" \
         -e LOG_ALL_EVENTS=true \
+        -e DISABLE_MCP=true \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v ~/.openhands-state-$safe_container_name:/.openhands-state \
         -p $port:3000 \
@@ -524,6 +527,7 @@ oh-help() {
     echo ""
     echo "${OH_BOLD}Configuration:${OH_RESET}"
     echo "  OPENHANDS_DEFAULT_VERSION     Current: ${OPENHANDS_DEFAULT_VERSION}"
+    echo "  OPENHANDS_RUNTIME_VERSION     Current: ${OPENHANDS_RUNTIME_VERSION}"
     echo "  OPENHANDS_PROJECTS_DIR        Current: ${OPENHANDS_PROJECTS_DIR}"
     echo ""
     echo "Add --help to any command for detailed usage"
