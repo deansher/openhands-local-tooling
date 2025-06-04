@@ -1,0 +1,84 @@
+#!/bin/bash
+
+# OpenHands Version Updater
+# Updates the default OpenHands version in the local tooling repository
+# Usage: oh-update-version [VERSION]
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+SHELL_SCRIPT="$REPO_DIR/shell/openhands.sh"
+
+if [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
+    echo "🔧 OpenHands Version Updater"
+    echo ""
+    echo "Usage: oh-update-version [VERSION]"
+    echo ""
+    echo "Examples:"
+    echo "  oh-update-version 0.41    # Update to specific version"
+    echo "  oh-update-version         # Interactive mode to choose version"
+    echo ""
+    echo "This updates the version in:"
+    echo "  - $SHELL_SCRIPT"
+    echo "  - ~/.zshrc (if OpenHands config is found there)"
+    exit 0
+fi
+
+if [[ -n "$1" ]]; then
+    NEW_VERSION="$1"
+else
+    echo "🔍 Current version: $OPENHANDS_DEFAULT_VERSION"
+    echo ""
+    echo "Available versions: 0.35, 0.38, 0.39, 0.40, 0.41, main"
+    echo ""
+    read -p "Enter new version: " NEW_VERSION
+fi
+
+if [[ -z "$NEW_VERSION" ]]; then
+    echo "❌ No version specified. Exiting."
+    exit 1
+fi
+
+echo "🛑 Stopping all OpenHands instances..."
+oh-stop-all
+
+echo "🔧 Updating version from $OPENHANDS_DEFAULT_VERSION to $NEW_VERSION..."
+
+# Update the shell script
+if [[ -f "$SHELL_SCRIPT" ]]; then
+    echo "  📝 Updating $SHELL_SCRIPT..."
+    sed -i.bak "s/OPENHANDS_DEFAULT_VERSION:-[^}]*/OPENHANDS_DEFAULT_VERSION:-$NEW_VERSION/" "$SHELL_SCRIPT"
+    if [[ $? -eq 0 ]]; then
+        echo "  ✅ Updated shell script"
+    else
+        echo "  ❌ Failed to update shell script"
+        exit 1
+    fi
+else
+    echo "  ❌ Shell script not found at $SHELL_SCRIPT"
+    exit 1
+fi
+
+# Update .zshrc if it contains OpenHands configuration
+if grep -q "OPENHANDS_DEFAULT_VERSION" ~/.zshrc 2>/dev/null; then
+    echo "  📝 Updating ~/.zshrc..."
+    sed -i.bak "s/OPENHANDS_DEFAULT_VERSION:-[^}]*/OPENHANDS_DEFAULT_VERSION:-$NEW_VERSION/" ~/.zshrc
+    if [[ $? -eq 0 ]]; then
+        echo "  ✅ Updated ~/.zshrc"
+    else
+        echo "  ⚠️  Warning: Failed to update ~/.zshrc"
+    fi
+fi
+
+# Update current session
+export OPENHANDS_DEFAULT_VERSION="$NEW_VERSION"
+
+echo ""
+echo "✅ Updated to version $NEW_VERSION"
+echo ""
+echo "💡 Changes applied:"
+echo "   - Shell script: $SHELL_SCRIPT"
+echo "   - Current session: Updated"
+echo "   - New shell sessions: Will use $NEW_VERSION"
+echo ""
+echo "🚀 You can now launch OpenHands with version $NEW_VERSION!" 
