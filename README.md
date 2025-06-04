@@ -11,6 +11,50 @@ A comprehensive set of shell commands and utilities for managing OpenHands insta
 - **Session management**: Save and restore OpenHands sessions
 - **Shell integration**: Tab completion and intuitive command names
 
+## How Project Paths Work
+
+OpenHands Local Tooling is designed around a **projects directory structure** that makes managing multiple projects simple and intuitive.
+
+### Project Directory Structure
+
+By default, all your projects live under `~/projects/`:
+
+```
+~/projects/
+├── myapp/                    # Simple project
+├── client-work/
+│   ├── website-redesign/     # Nested project  
+│   └── mobile-app/           # Another nested project
+└── personal/
+    ├── blog/                 # Personal projects
+    └── experiments/
+        └── ai-chatbot/       # Deeply nested project
+```
+
+### Using Project Paths
+
+**From anywhere on your system:**
+```bash
+oh myapp                           # Launch ~/projects/myapp
+oh client-work/website-redesign    # Launch ~/projects/client-work/website-redesign  
+oh personal/experiments/ai-chatbot # Launch deeply nested project
+```
+
+**From within a project directory:**
+```bash
+cd ~/projects/myapp
+oh                                 # Launch current directory project
+```
+
+### Path Resolution
+
+- **Relative paths** (like `myapp` or `client-work/website-redesign`) are resolved relative to your projects directory
+- **Current directory**: Running `oh` with no arguments uses the current directory
+- **Tab completion**: Type `oh ` and press tab to see available projects
+- **Automatic detection**: The tooling automatically finds all git repositories in your projects directory
+
+This structure keeps your OpenHands instances organized and makes it easy to jump between different projects without navigating complex file paths.
+
 ## Installation
 
 1. Clone this repository:
@@ -75,13 +119,13 @@ export OPENHANDS_LOG_RETENTION_DAYS="30"
 oh
 
 # Launch for a specific project
-oh chat/AdmiredLeadership/cra-backend
+oh client-work/website-redesign
 
 # Use a different version
-oh-version 0.39 myproject
+oh-version 0.39 myapp
 
 # View logs  
-oh-logs -f myproject
+oh-logs -f myapp
 
 # Update to latest version
 oh-update-version 0.41
