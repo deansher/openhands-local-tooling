@@ -81,12 +81,14 @@ oh() {
         echo "${OH_BOLD}Usage:${OH_RESET}"
         echo "  oh                    Launch for current directory"
         echo "  oh PROJECT_PATH       Launch for ~/projects/PROJECT_PATH"
+        echo "  oh .                  Launch for entire projects directory"
         echo "  oh --help            Show this help"
         echo ""
         echo "${OH_BOLD}Examples:${OH_RESET}"
         echo "  cd ~/projects/myapp && oh"
         echo "  oh SallyR"
         echo "  oh chat/AdmiredLeadership/cra-backend"
+        echo "  oh .                  # Access all projects"
         return 0
     fi
 
@@ -106,6 +108,11 @@ oh() {
             project_path=$(basename "$PWD")
             project_display_name="$(basename "$PWD") (external)"
         fi
+    elif [[ "$1" == "." ]]; then
+        # Special case: mount entire projects directory
+        project_path="projects-root"
+        project_display_name="All Projects"
+        absolute_project_path="$OPENHANDS_PROJECTS_DIR"
     else
         # Argument provided: assume it's a project path relative to ~/projects
         project_path="$1"
@@ -240,11 +247,13 @@ oh-stop() {
         echo "${OH_BOLD}Usage:${OH_RESET}"
         echo "  oh-stop PROJECT_PATH    Stop specific project"
         echo "  oh-stop                 Stop project in current directory"
+        echo "  oh-stop .               Stop projects root instance"
         echo "  oh-stop --help         Show this help"
         echo ""
         echo "${OH_BOLD}Examples:${OH_RESET}"
         echo "  oh-stop SallyR"
         echo "  oh-stop chat/AdmiredLeadership/cra-backend"
+        echo "  oh-stop .              # Stop the all-projects instance"
         return 0
     fi
     
@@ -261,6 +270,10 @@ oh-stop() {
             project_path=$(basename "$PWD")
             project_display_name="$(basename "$PWD")"
         fi
+    elif [[ "$1" == "." ]]; then
+        # Special case: projects root
+        project_path="projects-root"
+        project_display_name="All Projects"
     else
         project_path="$1"
         project_display_name="$1"
@@ -361,6 +374,7 @@ oh-version() {
         echo "${OH_BOLD}Examples:${OH_RESET}"
         echo "  oh-version 0.38             # Use version 0.38 for current dir"
         echo "  oh-version main SallyR      # Use main branch for SallyR"
+        echo "  oh-version 0.40 .           # Use version 0.40 for all projects"
         echo ""
         echo "${OH_BOLD}Available versions:${OH_RESET} 0.28, 0.35, 0.38, 0.39, 0.40, main"
         return 0
@@ -384,6 +398,7 @@ oh-save() {
         echo "${OH_BOLD}Usage:${OH_RESET}"
         echo "  oh-save [PROJECT_PATH]    Save state for project"
         echo "  oh-save                   Save state for current directory"
+        echo "  oh-save .                 Save state for projects root"
         return 0
     fi
     
@@ -400,6 +415,10 @@ oh-save() {
             project_path=$(basename "$PWD")
             project_display_name="$(basename "$PWD")"
         fi
+    elif [[ "$1" == "." ]]; then
+        # Special case: projects root
+        project_path="projects-root"
+        project_display_name="All Projects"
     else
         project_path="$1"
         project_display_name="$1"
@@ -483,6 +502,9 @@ oh-logs() {
         else
             project_path=$(basename "$PWD")
         fi
+    elif [[ "$project_path" == "." ]]; then
+        # Special case: projects root
+        project_path="projects-root"
     fi
     
     local safe_container_name=$(_oh_safe_container_name "$project_path")
@@ -555,7 +577,8 @@ _oh_complete() {
         _OH_PROJECTS_CACHE_TIME=$current_time
     fi
     
-    projects=($_OH_PROJECTS_CACHE)
+    # Include '.' as an option for projects root
+    projects=("." ${_OH_PROJECTS_CACHE[@]})
     
     # Handle completion differently for zsh vs bash
     if [[ -n "$ZSH_VERSION" ]]; then
@@ -586,7 +609,8 @@ _oh_complete_bash() {
         _OH_PROJECTS_CACHE_TIME=$current_time
     fi
     
-    COMPREPLY=($(compgen -W "${_OH_PROJECTS_CACHE[*]}" -- "$cur"))
+    # Include '.' as an option for projects root
+    COMPREPLY=($(compgen -W ". ${_OH_PROJECTS_CACHE[*]}" -- "$cur"))
 }
 
 # Function to refresh the project cache manually

@@ -38,6 +38,7 @@ By default, all your projects live under `~/projects/`:
 oh myapp                           # Launch ~/projects/myapp
 oh client-work/website-redesign    # Launch ~/projects/client-work/website-redesign  
 oh personal/experiments/ai-chatbot # Launch deeply nested project
+oh .                               # Launch at projects root (access all projects)
 ```
 
 **From within a project directory:**
@@ -46,11 +47,17 @@ cd ~/projects/myapp
 oh                                 # Launch current directory project
 ```
 
+**Access all projects (useful for moving code between projects):**
+```bash
+oh .                               # Mounts entire ~/projects directory
+```
+
 ### Path Resolution
 
 - **Relative paths** (like `myapp` or `client-work/website-redesign`) are resolved relative to your projects directory
 - **Current directory**: Running `oh` with no arguments uses the current directory
-- **Tab completion**: Type `oh ` and press tab to see available projects
+- **Projects root**: Using `oh .` mounts the entire projects directory, useful for cross-project operations
+- **Tab completion**: Type `oh ` and press tab to see available projects (including `.`)
 - **Automatic detection**: The tooling automatically finds all git repositories in your projects directory
 
 This structure keeps your OpenHands instances organized and makes it easy to jump between different projects without navigating complex file paths.
@@ -120,6 +127,9 @@ oh
 
 # Launch for a specific project
 oh client-work/website-redesign
+
+# Launch at projects root (access all projects)
+oh .
 
 # Use a different version
 oh-version 0.39 myapp
