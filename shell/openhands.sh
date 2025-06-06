@@ -95,6 +95,7 @@ oh() {
     local project_path=""
     local project_display_name=""
     local absolute_project_path=""
+    local user_arg=""  # Track original user argument for tips
     
     if [[ $# -eq 0 ]]; then
         # No argument: use current directory
@@ -104,20 +105,24 @@ oh() {
         if [[ -n "$rel_path" ]]; then
             project_path="$rel_path"
             project_display_name="$rel_path"
+            user_arg="$rel_path"
         else
             project_path=$(basename "$PWD")
             project_display_name="$(basename "$PWD") (external)"
+            user_arg=""  # No argument for current directory
         fi
     elif [[ "$1" == "." ]]; then
         # Special case: mount entire projects directory
         project_path="projects-root"
         project_display_name="All Projects"
         absolute_project_path="$OPENHANDS_PROJECTS_DIR"
+        user_arg="."
     else
         # Argument provided: assume it's a project path relative to ~/projects
         project_path="$1"
         project_display_name="$1"
         absolute_project_path="$OPENHANDS_PROJECTS_DIR/$1"
+        user_arg="$1"
         
         if [[ ! -d "$absolute_project_path" ]]; then
             echo "${OH_RED}✗ Project directory $absolute_project_path not found!${OH_RESET}"
@@ -152,7 +157,11 @@ oh() {
     if docker ps -q --filter "name=openhands-app-$safe_container_name" | grep -q .; then
         local existing_port=$(docker port "openhands-app-$safe_container_name" 3000 | cut -d: -f2)
         echo "${OH_YELLOW}⚠️  OpenHands is already running for $project_display_name on port $existing_port${OH_RESET}"
-        echo "Stop it first with: oh-stop $project_path"
+        if [[ -n "$user_arg" ]]; then
+            echo "Stop it first with: oh-stop $user_arg"
+        else
+            echo "Stop it first with: oh-stop"
+        fi
         return 1
     fi
     
@@ -197,8 +206,13 @@ oh() {
         echo ""
         echo "💡 Tips:"
         echo "  - Start a NEW conversation in the UI for fresh workspace mounts"
-        echo "  - View logs with: oh-logs $project_path"
-        echo "  - Follow logs with: oh-logs -f $project_path"
+        if [[ -n "$user_arg" ]]; then
+            echo "  - View logs with: oh-logs $user_arg"
+            echo "  - Follow logs with: oh-logs -f $user_arg"
+        else
+            echo "  - View logs with: oh-logs"
+            echo "  - Follow logs with: oh-logs -f"
+        fi
         
         # Wait a moment and open browser
         sleep 2
@@ -232,6 +246,10 @@ oh-list() {
             local safe_name=${name#openhands-app-}
             # Convert safe name back to project path
             local project_name=$(echo "$safe_name" | sed 's|__|/|g')
+            # Special case for projects-root
+            if [[ "$project_name" == "projects-root" ]]; then
+                project_name="."
+            fi
             local port=$(echo $ports | grep -o '0.0.0.0:[0-9]*->3000' | cut -d: -f2 | cut -d- -f1)
             printf "  %-40s %s    %s\n" "$project_name" "$port" "$container_status"
         done
@@ -470,6 +488,7 @@ oh-logs() {
     local num_lines=""
     local since=""
     local project_path=""
+    local original_arg=""
     
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -488,6 +507,7 @@ oh-logs() {
                 ;;
             *)
                 project_path="$1"
+                original_arg="$1"
                 shift
                 ;;
         esac
@@ -513,7 +533,11 @@ oh-logs() {
     # Check if container is running
     if ! docker ps -q --filter "name=$container_name" | grep -q .; then
         echo "${OH_RED}✗ No running OpenHands instance for $project_path${OH_RESET}"
-        echo "Start it with: oh $project_path"
+        if [[ -n "$original_arg" ]]; then
+            echo "Start it with: oh $original_arg"
+        else
+            echo "Start it with: oh"
+        fi
         return 1
     fi
     
@@ -525,7 +549,13 @@ oh-logs() {
     docker_cmd="$docker_cmd $container_name"
     
     # Execute docker logs
-    echo "${OH_BLUE}📄 Showing logs for $project_path${OH_RESET}"
+    if [[ "$original_arg" == "." ]]; then
+        echo "${OH_BLUE}📄 Showing logs for All Projects${OH_RESET}"
+    elif [[ -n "$original_arg" ]]; then
+        echo "${OH_BLUE}📄 Showing logs for $original_arg${OH_RESET}"
+    else
+        echo "${OH_BLUE}📄 Showing logs for current directory${OH_RESET}"
+    fi
     eval $docker_cmd
 }
 
