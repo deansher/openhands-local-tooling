@@ -624,21 +624,22 @@ oh-runtime-logs() {
     
     # Find runtime containers for this project
     local safe_container_name=$(_oh_safe_container_name "$project_path")
-    local runtime_containers=$(docker ps --filter "name=openhands-runtime-.*$safe_container_name" --format "{{.Names}}" 2>/dev/null)
+    local runtime_containers=""
     
-    if [[ -z "$runtime_containers" ]]; then
-        # Try to find any runtime container that might be associated
-        local app_container="openhands-app-$safe_container_name"
-        if docker ps -q --filter "name=$app_container" | grep -q .; then
-            # App is running, look for runtime containers by conversation ID in app logs
-            local conversation_ids=$(docker logs "$app_container" 2>&1 | grep -oE "conversation_id=[a-f0-9]{32}" | cut -d= -f2 | sort -u | tail -5)
-            for conv_id in $conversation_ids; do
-                if docker ps -q --filter "name=openhands-runtime-$conv_id" | grep -q .; then
+    # First, check if the app container is running
+    local app_container="openhands-app-$safe_container_name"
+    if docker ps --filter "name=$app_container" --format "{{.Names}}" | grep -q "^${app_container}$"; then
+        # App is running, look for runtime containers by conversation ID in app logs
+        local conversation_ids=$(docker logs "$app_container" 2>&1 | grep -oE "conversation_id=[a-f0-9]{32}" | cut -d= -f2 | sort -u | tail -5)
+        while IFS= read -r conv_id; do
+            if [[ -n "$conv_id" ]] && docker ps --filter "name=openhands-runtime-$conv_id" --format "{{.Names}}" | grep -q "^openhands-runtime-${conv_id}$"; then
+                if [[ -n "$runtime_containers" ]]; then
+                    runtime_containers="${runtime_containers} openhands-runtime-$conv_id"
+                else
                     runtime_containers="openhands-runtime-$conv_id"
-                    break
                 fi
-            done
-        fi
+            fi
+        done <<< "$conversation_ids"
     fi
     
     if [[ -z "$runtime_containers" ]]; then
@@ -651,7 +652,7 @@ oh-runtime-logs() {
     fi
     
     # If multiple runtime containers, use the most recent one
-    local runtime_container=$(echo "$runtime_containers" | tail -1)
+    local runtime_container=$(echo "$runtime_containers" | tr ' ' '\n' | tail -1)
     
     # Build docker logs command
     local docker_cmd="docker logs"
@@ -669,6 +670,13 @@ oh-runtime-logs() {
         echo "${OH_BLUE}📄 Showing runtime logs for current directory${OH_RESET}"
     fi
     echo "${OH_YELLOW}Runtime container: $runtime_container${OH_RESET}"
+    
+    # If there are multiple runtime containers, show them
+    local container_count=$(echo "$runtime_containers" | tr ' ' '\n' | wc -l | tr -d ' ')
+    if [[ $container_count -gt 1 ]]; then
+        echo "${OH_YELLOW}Note: Found $container_count runtime containers, showing the most recent${OH_RESET}"
+        echo "All runtime containers: $runtime_containers"
+    fi
     echo ""
     eval $docker_cmd
 }
