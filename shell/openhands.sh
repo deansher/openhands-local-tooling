@@ -191,7 +191,6 @@ oh() {
         -e SANDBOX_USER_ID=$(id -u) \
         -e SANDBOX_VOLUMES="$absolute_project_path:/workspace:rw" \
         -e LOG_ALL_EVENTS=true \
-        -e DISABLE_MCP=true \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v ~/.openhands-state-$safe_container_name:/.openhands-state \
         -p $port:3000 \
