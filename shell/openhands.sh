@@ -713,7 +713,9 @@ oh-containers() {
     
     local docker_filter=""
     if [[ "$show_all" == false ]]; then
-        docker_filter="--filter status=running"
+        docker_filter=""  # docker ps without -a shows only running containers by default
+    else
+        docker_filter="-a"  # Show all containers including stopped ones
     fi
     
     if [[ "$runtime_only" == false ]]; then
@@ -727,14 +729,14 @@ oh-containers() {
             printf "  %s\n" "────────────────────────────────────────────────────────────────────────────────"
             
             # Process each app container
-            docker ps $docker_filter --filter "name=openhands-app-" --format "{{.Names}}|{{.Status}}|{{.Ports}}" 2>/dev/null | while IFS='|' read -r name status ports; do
+            docker ps $docker_filter --filter "name=openhands-app-" --format "{{.Names}}|{{.Status}}|{{.Ports}}" 2>/dev/null | while IFS='|' read -r name container_status ports; do
                 local safe_name=${name#openhands-app-}
                 local project_name=$(echo "$safe_name" | sed 's|__|/|g')
                 if [[ "$project_name" == "projects-root" ]]; then
                     project_name="."
                 fi
                 local port=$(echo $ports | grep -o '0.0.0.0:[0-9]*->3000' | cut -d: -f2 | cut -d- -f1)
-                printf "  %-45s %-20s %s\n" "$project_name" "$status" "${port:-N/A}"
+                printf "  %-45s %-20s %s\n" "$project_name" "$container_status" "${port:-N/A}"
                 
                 # Find associated runtime containers
                 local conversation_ids=$(docker logs "$name" 2>&1 | grep -oE "conversation_id=[a-f0-9]{32}" | cut -d= -f2 | sort -u | tail -5)
@@ -761,10 +763,10 @@ oh-containers() {
         printf "  %s\n" "────────────────────────────────────────────────────────────────────────────────"
         
         # Show runtime containers
-        docker ps $docker_filter --filter "name=openhands-runtime-" --format "{{.Names}}|{{.Status}}|{{.Ports}}" 2>/dev/null | while IFS='|' read -r name status ports; do
+        docker ps $docker_filter --filter "name=openhands-runtime-" --format "{{.Names}}|{{.Status}}|{{.Ports}}" 2>/dev/null | while IFS='|' read -r name container_status ports; do
             local short_name="${name:0:50}"
             local port_info=$(echo $ports | grep -oE '[0-9]+->')[0:20] || "N/A"
-            printf "  %-50s %-20s %s\n" "$short_name" "$status" "${port_info}..."
+            printf "  %-50s %-20s %s\n" "$short_name" "$container_status" "${port_info}..."
         done
     else
         echo "  No runtime containers found"
