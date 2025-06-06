@@ -464,22 +464,23 @@ oh-save() {
 # View logs for OpenHands instance
 oh-logs() {
     if [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
-        echo "${OH_BOLD}oh-logs - View logs for OpenHands instance${OH_RESET}"
+        echo "${OH_BOLD}oh-logs - View logs for OpenHands app container${OH_RESET}"
         echo ""
         echo "${OH_BOLD}Usage:${OH_RESET}"
-        echo "  oh-logs [PROJECT_PATH]      View recent logs for project"
-        echo "  oh-logs -f [PROJECT_PATH]   Follow log output in real-time"
+        echo "  oh-logs [PROJECT_PATH]      View recent app logs"
+        echo "  oh-logs -f [PROJECT_PATH]   Follow app log output in real-time"
         echo "  oh-logs -n NUM [PROJECT]    Show last NUM lines (default: all)"
         echo "  oh-logs --since TIME [PROJ] Show logs since TIME (e.g. 10m, 1h)"
         echo ""
         echo "${OH_BOLD}Examples:${OH_RESET}"
-        echo "  oh-logs                     # View logs for current directory"
-        echo "  oh-logs SallyR              # View logs for SallyR project"
-        echo "  oh-logs -f                  # Follow logs for current directory"
+        echo "  oh-logs                     # View app logs for current directory"
+        echo "  oh-logs SallyR              # View app logs for SallyR project"
+        echo "  oh-logs -f                  # Follow app logs for current directory"
         echo "  oh-logs -n 50               # Show last 50 lines"
         echo "  oh-logs --since 5m          # Show logs from last 5 minutes"
         echo ""
-        echo "${OH_BOLD}Note:${OH_RESET} This is a wrapper around 'docker logs' with project name resolution"
+        echo "${OH_BOLD}Note:${OH_RESET} App containers handle the UI and orchestration."
+        echo "For code execution logs, use: oh-runtime-logs"
         return 0
     fi
     
@@ -558,6 +559,225 @@ oh-logs() {
     eval $docker_cmd
 }
 
+# View logs for OpenHands runtime container
+oh-runtime-logs() {
+    if [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
+        echo "${OH_BOLD}oh-runtime-logs - View logs for OpenHands runtime container${OH_RESET}"
+        echo ""
+        echo "${OH_BOLD}Usage:${OH_RESET}"
+        echo "  oh-runtime-logs [PROJECT_PATH]      View recent runtime logs"
+        echo "  oh-runtime-logs -f [PROJECT_PATH]   Follow runtime log output"
+        echo "  oh-runtime-logs -n NUM [PROJECT]    Show last NUM lines"
+        echo "  oh-runtime-logs --since TIME [PROJ] Show logs since TIME"
+        echo ""
+        echo "${OH_BOLD}Examples:${OH_RESET}"
+        echo "  oh-runtime-logs                     # View runtime logs for current directory"
+        echo "  oh-runtime-logs -f myapp            # Follow runtime logs for myapp"
+        echo "  oh-runtime-logs -n 100 .            # Last 100 lines for projects root"
+        echo ""
+        echo "${OH_BOLD}Note:${OH_RESET} Runtime containers execute your code and handle MCP tools"
+        return 0
+    fi
+    
+    local follow=false
+    local num_lines=""
+    local since=""
+    local project_path=""
+    local original_arg=""
+    
+    # Parse arguments (same as oh-logs)
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -f|--follow)
+                follow=true
+                shift
+                ;;
+            -n|--lines)
+                num_lines="$2"
+                shift 2
+                ;;
+            --since)
+                since="$2"
+                shift 2
+                ;;
+            *)
+                project_path="$1"
+                original_arg="$1"
+                shift
+                ;;
+        esac
+    done
+    
+    # Determine project path
+    if [[ -z "$project_path" ]]; then
+        # No argument: use current directory
+        local rel_path=$(_oh_get_project_path "$PWD")
+        if [[ -n "$rel_path" ]]; then
+            project_path="$rel_path"
+        else
+            project_path=$(basename "$PWD")
+        fi
+    elif [[ "$project_path" == "." ]]; then
+        # Special case: projects root
+        project_path="projects-root"
+    fi
+    
+    # Find runtime containers for this project
+    local safe_container_name=$(_oh_safe_container_name "$project_path")
+    local runtime_containers=$(docker ps --filter "name=openhands-runtime-.*$safe_container_name" --format "{{.Names}}" 2>/dev/null)
+    
+    if [[ -z "$runtime_containers" ]]; then
+        # Try to find any runtime container that might be associated
+        local app_container="openhands-app-$safe_container_name"
+        if docker ps -q --filter "name=$app_container" | grep -q .; then
+            # App is running, look for runtime containers by conversation ID in app logs
+            local conversation_ids=$(docker logs "$app_container" 2>&1 | grep -oE "conversation_id=[a-f0-9]{32}" | cut -d= -f2 | sort -u | tail -5)
+            for conv_id in $conversation_ids; do
+                if docker ps -q --filter "name=openhands-runtime-$conv_id" | grep -q .; then
+                    runtime_containers="openhands-runtime-$conv_id"
+                    break
+                fi
+            done
+        fi
+    fi
+    
+    if [[ -z "$runtime_containers" ]]; then
+        echo "${OH_RED}✗ No running runtime container found for this project${OH_RESET}"
+        echo "Runtime containers are created when you start a conversation in OpenHands."
+        echo ""
+        echo "To list all runtime containers:"
+        echo "  docker ps --filter 'name=openhands-runtime-'"
+        return 1
+    fi
+    
+    # If multiple runtime containers, use the most recent one
+    local runtime_container=$(echo "$runtime_containers" | tail -1)
+    
+    # Build docker logs command
+    local docker_cmd="docker logs"
+    [[ "$follow" == true ]] && docker_cmd="$docker_cmd -f"
+    [[ -n "$num_lines" ]] && docker_cmd="$docker_cmd -n $num_lines"
+    [[ -n "$since" ]] && docker_cmd="$docker_cmd --since $since"
+    docker_cmd="$docker_cmd $runtime_container"
+    
+    # Execute docker logs
+    if [[ "$original_arg" == "." ]]; then
+        echo "${OH_BLUE}📄 Showing runtime logs for All Projects${OH_RESET}"
+    elif [[ -n "$original_arg" ]]; then
+        echo "${OH_BLUE}📄 Showing runtime logs for $original_arg${OH_RESET}"
+    else
+        echo "${OH_BLUE}📄 Showing runtime logs for current directory${OH_RESET}"
+    fi
+    echo "${OH_YELLOW}Runtime container: $runtime_container${OH_RESET}"
+    echo ""
+    eval $docker_cmd
+}
+
+# Show all OpenHands containers (app and runtime)
+oh-containers() {
+    if [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
+        echo "${OH_BOLD}oh-containers - Show all OpenHands containers with their relationships${OH_RESET}"
+        echo ""
+        echo "${OH_BOLD}Usage:${OH_RESET} oh-containers [OPTIONS]"
+        echo ""
+        echo "${OH_BOLD}Options:${OH_RESET}"
+        echo "  -a, --all        Show stopped containers too"
+        echo "  -r, --runtime    Show only runtime containers"
+        echo "  --help           Show this help"
+        echo ""
+        echo "${OH_BOLD}Container Types:${OH_RESET}"
+        echo "  App containers:     Main OpenHands UI and orchestration"
+        echo "  Runtime containers: Code execution environments (one per conversation)"
+        return 0
+    fi
+    
+    local show_all=false
+    local runtime_only=false
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -a|--all)
+                show_all=true
+                shift
+                ;;
+            -r|--runtime)
+                runtime_only=true
+                shift
+                ;;
+            *)
+                echo "${OH_RED}Unknown option: $1${OH_RESET}"
+                return 1
+                ;;
+        esac
+    done
+    
+    local docker_filter=""
+    if [[ "$show_all" == false ]]; then
+        docker_filter="--filter status=running"
+    fi
+    
+    if [[ "$runtime_only" == false ]]; then
+        echo "${OH_BOLD}🚀 OpenHands App Containers:${OH_RESET}"
+        echo ""
+        
+        local app_containers=$(docker ps $docker_filter --filter "name=openhands-app-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null)
+        if [[ -n "$app_containers" ]]; then
+            # Header
+            printf "  %-45s %-20s %s\n" "PROJECT" "STATUS" "PORT"
+            printf "  %s\n" "────────────────────────────────────────────────────────────────────────────────"
+            
+            # Process each app container
+            docker ps $docker_filter --filter "name=openhands-app-" --format "{{.Names}}|{{.Status}}|{{.Ports}}" 2>/dev/null | while IFS='|' read -r name status ports; do
+                local safe_name=${name#openhands-app-}
+                local project_name=$(echo "$safe_name" | sed 's|__|/|g')
+                if [[ "$project_name" == "projects-root" ]]; then
+                    project_name="."
+                fi
+                local port=$(echo $ports | grep -o '0.0.0.0:[0-9]*->3000' | cut -d: -f2 | cut -d- -f1)
+                printf "  %-45s %-20s %s\n" "$project_name" "$status" "${port:-N/A}"
+                
+                # Find associated runtime containers
+                local conversation_ids=$(docker logs "$name" 2>&1 | grep -oE "conversation_id=[a-f0-9]{32}" | cut -d= -f2 | sort -u | tail -5)
+                for conv_id in $conversation_ids; do
+                    if docker ps -q $docker_filter --filter "name=openhands-runtime-$conv_id" | grep -q .; then
+                        local runtime_status=$(docker ps $docker_filter --filter "name=openhands-runtime-$conv_id" --format "{{.Status}}")
+                        printf "    └─ %-41s %-20s\n" "runtime: ${conv_id:0:8}..." "$runtime_status"
+                    fi
+                done
+            done
+        else
+            echo "  No app containers found"
+        fi
+        echo ""
+    fi
+    
+    echo "${OH_BOLD}⚙️  OpenHands Runtime Containers:${OH_RESET}"
+    echo ""
+    
+    local runtime_containers=$(docker ps $docker_filter --filter "name=openhands-runtime-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null | grep -v "NAMES")
+    if [[ -n "$runtime_containers" ]]; then
+        # Header
+        printf "  %-50s %-20s %s\n" "CONTAINER ID" "STATUS" "PORTS"
+        printf "  %s\n" "────────────────────────────────────────────────────────────────────────────────"
+        
+        # Show runtime containers
+        docker ps $docker_filter --filter "name=openhands-runtime-" --format "{{.Names}}|{{.Status}}|{{.Ports}}" 2>/dev/null | while IFS='|' read -r name status ports; do
+            local short_name="${name:0:50}"
+            local port_info=$(echo $ports | grep -oE '[0-9]+->')[0:20] || "N/A"
+            printf "  %-50s %-20s %s\n" "$short_name" "$status" "${port_info}..."
+        done
+    else
+        echo "  No runtime containers found"
+        echo "  Runtime containers are created when you start a conversation in OpenHands"
+    fi
+    echo ""
+    
+    # Show summary
+    local app_count=$(docker ps $docker_filter --filter "name=openhands-app-" -q | wc -l | tr -d ' ')
+    local runtime_count=$(docker ps $docker_filter --filter "name=openhands-runtime-" -q | wc -l | tr -d ' ')
+    echo "${OH_BOLD}Summary:${OH_RESET} $app_count app container(s), $runtime_count runtime container(s)"
+}
+
 # Show all commands
 oh-help() {
     echo "${OH_BOLD}OpenHands Project Management Commands${OH_RESET}"
@@ -568,7 +788,9 @@ oh-help() {
     echo "  ${OH_GREEN}oh-stop${OH_RESET} [PROJECT_PATH]    Stop specific instance"
     echo "  ${OH_GREEN}oh-stop-all${OH_RESET}          Stop all instances"
     echo "  ${OH_GREEN}oh-clean${OH_RESET}             Clean up old containers"
-    echo "  ${OH_GREEN}oh-logs${OH_RESET} [OPTIONS] [PROJECT]   View Docker logs"
+    echo "  ${OH_GREEN}oh-logs${OH_RESET} [OPTIONS] [PROJECT]   View app container logs"
+    echo "  ${OH_GREEN}oh-runtime-logs${OH_RESET} [OPTIONS] [PROJECT]   View runtime container logs"
+    echo "  ${OH_GREEN}oh-containers${OH_RESET} [OPTIONS]   Show all containers with relationships"
     echo "  ${OH_GREEN}ohcd${OH_RESET} PROJECT_PATH         CD to project and launch"
     echo "  ${OH_GREEN}oh-version${OH_RESET} VER       Use specific OpenHands version"
     echo "  ${OH_GREEN}oh-save${OH_RESET} [PROJECT_PATH]    Save session state"
@@ -662,6 +884,8 @@ if [[ -n "$ZSH_VERSION" ]]; then
     compdef _oh_complete oh-save
     compdef _oh_complete oh-version
     compdef _oh_complete oh-logs
+    compdef _oh_complete oh-runtime-logs
+    compdef _oh_complete oh-containers
 fi
 
 # Enable tab completion for the commands (bash)
@@ -673,4 +897,6 @@ if [[ -n "$BASH_VERSION" ]]; then
     complete -F _oh_complete_bash oh-save
     complete -F _oh_complete_bash oh-version
     complete -F _oh_complete_bash oh-logs
+    complete -F _oh_complete_bash oh-runtime-logs
+    complete -F _oh_complete_bash oh-containers
 fi 

@@ -88,7 +88,9 @@ source ~/.zshrc
 - `oh-list` - List all running OpenHands instances  
 - `oh-stop [PROJECT_PATH]` - Stop OpenHands for a specific project
 - `oh-stop-all` - Stop all OpenHands instances
-- `oh-logs [OPTIONS] [PROJECT_PATH]` - View logs for an instance
+- `oh-logs [OPTIONS] [PROJECT_PATH]` - View app container logs
+- `oh-runtime-logs [OPTIONS] [PROJECT_PATH]` - View runtime container logs
+- `oh-containers [OPTIONS]` - Show all containers with relationships
 
 ### Convenience Commands
 - `ohcd PROJECT_PATH` - Change directory and launch OpenHands
@@ -100,6 +102,29 @@ source ~/.zshrc
 ### Management Commands
 - `oh-update-version [VERSION]` - Update default OpenHands version
 - `oh-refresh-cache` - Refresh project list cache for tab completion
+
+## Understanding OpenHands Containers
+
+OpenHands uses a two-container architecture:
+
+1. **App Container** (`openhands-app-*`)
+   - Runs the web UI you interact with
+   - Handles orchestration and coordination
+   - One per project you launch with `oh`
+   - View logs with: `oh-logs`
+
+2. **Runtime Container** (`openhands-runtime-*`)
+   - Executes your code in a sandboxed environment
+   - Downloads and manages MCP tools
+   - One per conversation/session within a project
+   - View logs with: `oh-runtime-logs`
+
+To see all containers and their relationships:
+```bash
+oh-containers              # Show all containers
+oh-containers -r          # Show only runtime containers
+oh-containers -a          # Include stopped containers
+```
 
 ## Configuration
 
@@ -155,33 +180,43 @@ MIT License - feel free to modify and share!
 
 ### MCP Timeout Issues with OpenHands 0.40
 
-**Status:** Under investigation
+**Status:** Root cause identified
 
-**Issue:** OpenHands 0.40 may experience timeout errors during agent session initialization when setting up MCP (Model Context Protocol) tools, particularly on restricted or high-latency networks.
+**Issue:** OpenHands 0.40 experiences timeout errors during MCP (Model Context Protocol) tool initialization, particularly on slow networks.
+
+**Architecture Background:**
+- OpenHands runs as two containers:
+  - **App container**: The main OpenHands UI and orchestration
+  - **Runtime container**: The code execution environment where your project runs
+- These containers communicate via HTTP over Docker's internal network
+
+**Root Cause:** 
+The runtime container downloads MCP tools from the internet (via `uvx mcp-server-fetch`) during initialization. This download often takes 18+ seconds on normal networks, but the app container only waits 10 seconds before timing out. On slow networks (like airline WiFi), the download takes even longer, making timeouts more frequent.
 
 **Symptoms:**
-- `httpx.ReadTimeout: timed out` errors in logs
-- Occurs during `add_mcp_tools_to_agent` call
+- `httpx.ReadTimeout: timed out` errors in app container logs
+- Occurs during `add_mcp_tools_to_agent` call (~10 seconds after runtime starts)
+- Runtime container continues downloading and eventually succeeds
 - More frequent on airline WiFi or restricted networks
-- MCP tools configuration may fail after ~10 second timeout
-
-**Root Cause:** Network timeout when OpenHands tries to communicate between containers to configure MCP tools. This appears to be exacerbated by:
-- High-latency network connections
-- Restricted network environments (e.g., airline WiFi)
-- Docker's internal networking behavior under certain conditions
 
 **Current Status:**
-- ✅ **Fixed**: Use correct `0.40-nikolaik` runtime image
+- ✅ **Identified**: Timeout is due to slow MCP tool downloads, not container communication
 - ✅ **Working**: OpenHands starts successfully and runtime containers initialize
-- ⚠️ **Intermittent**: MCP timeout errors occur on some networks but don't prevent basic functionality
-- ✅ **Enabled**: MCP support is enabled for tool integration
+- ⚠️ **Intermittent**: MCP initialization fails on slow networks but doesn't prevent basic functionality
+- ✅ **Enabled**: MCP support is enabled for tool integration when network is fast enough
 
-**Workaround:** OpenHands still functions for basic tasks despite MCP timeout warnings in logs. The timeouts primarily affect MCP tool initialization.
+**Workaround:** OpenHands still functions for basic tasks despite MCP timeout warnings. The runtime container eventually completes initialization even after the app container times out.
 
-**Monitoring:** 
-- Runtime containers start successfully: ✅
-- Agent sessions eventually initialize: ⚠️ (with warnings)
-- Basic OpenHands functionality available: ✅
+**Debugging:** 
+To see both sides of the story:
+```bash
+# View app container logs (what you normally see)
+oh-logs [project-name]
+
+# View runtime container logs (see MCP download progress)
+docker ps --filter "name=openhands-runtime-" --format "table {{.Names}}"
+docker logs [runtime-container-name]
+```
 
 **Related Issues:**
 - [GitHub Issue #8862](https://github.com/All-Hands-AI/OpenHands/issues/8862) - Runtime image problems
@@ -195,14 +230,27 @@ For the latest status, check the OpenHands GitHub issues and releases.
 
 **Check if OpenHands is running:**
 ```bash
-oh-list
+oh-list                    # List app containers
+oh-containers              # Show all containers with details
 ```
 
 **View logs for issues:**
 ```bash
-oh-logs [project-name]           # View recent logs
-oh-logs -f [project-name]        # Follow logs in real-time
-oh-logs -n 50 [project-name]     # Show last 50 lines
+oh-logs [project-name]           # View app container logs
+oh-logs -f [project-name]        # Follow app logs in real-time
+oh-runtime-logs [project-name]   # View runtime container logs
+oh-runtime-logs -f [project-name] # Follow runtime logs (see MCP downloads)
+```
+
+**Debug MCP timeout issues:**
+```bash
+# Watch both containers during startup
+oh-logs -f myproject &           # App logs in background
+oh-runtime-logs -f myproject     # Runtime logs in foreground
+
+# Or in separate terminals:
+# Terminal 1: oh-logs -f myproject
+# Terminal 2: oh-runtime-logs -f myproject
 ```
 
 **Common Solutions:**
