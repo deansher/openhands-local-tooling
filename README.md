@@ -155,18 +155,28 @@ MIT License - feel free to modify and share!
 
 ### MCP Timeout Issues with OpenHands 0.40
 
-**Status:** Partially resolved - runtime fixed, MCP timeouts persist
+**Status:** Under investigation
 
-**Issue:** OpenHands 0.40 experiences timeout errors during agent session initialization when setting up MCP (Model Context Protocol) tools.
+**Issue:** OpenHands 0.40 may experience timeout errors during agent session initialization when setting up MCP (Model Context Protocol) tools, particularly on restricted or high-latency networks.
 
-**Root Cause:** Network timeout when OpenHands tries to communicate with runtime containers to configure MCP tools.
+**Symptoms:**
+- `httpx.ReadTimeout: timed out` errors in logs
+- Occurs during `add_mcp_tools_to_agent` call
+- More frequent on airline WiFi or restricted networks
+- MCP tools configuration may fail after ~10 second timeout
 
-**Current Solution:**
-- ✅ **Fixed**: Use correct `0.40-nikolaik` runtime image (was using non-existent `0.32-nikolaik`)
+**Root Cause:** Network timeout when OpenHands tries to communicate between containers to configure MCP tools. This appears to be exacerbated by:
+- High-latency network connections
+- Restricted network environments (e.g., airline WiFi)
+- Docker's internal networking behavior under certain conditions
+
+**Current Status:**
+- ✅ **Fixed**: Use correct `0.40-nikolaik` runtime image
 - ✅ **Working**: OpenHands starts successfully and runtime containers initialize
-- ⚠️ **Partial**: MCP timeout errors still occur but don't prevent basic functionality
+- ⚠️ **Intermittent**: MCP timeout errors occur on some networks but don't prevent basic functionality
+- ✅ **Enabled**: MCP support is enabled for tool integration
 
-**Workaround:** OpenHands still functions for basic tasks despite MCP timeout warnings in logs.
+**Workaround:** OpenHands still functions for basic tasks despite MCP timeout warnings in logs. The timeouts primarily affect MCP tool initialization.
 
 **Monitoring:** 
 - Runtime containers start successfully: ✅
