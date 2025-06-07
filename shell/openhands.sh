@@ -10,9 +10,9 @@ OH_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 OH_REPO_DIR="$(dirname "$OH_SCRIPT_DIR")"
 
 # Configuration
-export OPENHANDS_DEFAULT_VERSION="${OPENHANDS_DEFAULT_VERSION:-0.40}"
-# Use the correct runtime version that matches OpenHands 0.40
-export OPENHANDS_RUNTIME_VERSION="${OPENHANDS_RUNTIME_VERSION:-0.40-nikolaik}"
+export OPENHANDS_DEFAULT_VERSION="${OPENHANDS_DEFAULT_VERSION:-0.41}"
+# Use the correct runtime version that matches OpenHands 0.41
+export OPENHANDS_RUNTIME_VERSION="${OPENHANDS_RUNTIME_VERSION:-0.41-nikolaik}"
 export OPENHANDS_PROJECTS_DIR="${OPENHANDS_PROJECTS_DIR:-$HOME/projects}"
 export OPENHANDS_LOG_DIR="${OPENHANDS_LOG_DIR:-$HOME/.openhands-logs}"
 export OPENHANDS_LOG_RETENTION_DAYS="${OPENHANDS_LOG_RETENTION_DAYS:-30}"
@@ -393,7 +393,7 @@ oh-version() {
         echo "  oh-version main SallyR      # Use main branch for SallyR"
         echo "  oh-version 0.40 .           # Use version 0.40 for all projects"
         echo ""
-        echo "${OH_BOLD}Available versions:${OH_RESET} 0.28, 0.35, 0.38, 0.39, 0.40, main"
+        echo "${OH_BOLD}Available versions:${OH_RESET} 0.28, 0.35, 0.38, 0.39, 0.40, 0.41, main"
         return 0
     fi
     

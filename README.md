@@ -131,8 +131,8 @@ oh-containers -a          # Include stopped containers
 Set these environment variables in your shell configuration:
 
 ```bash
-# Default OpenHands version (default: 0.40)
-export OPENHANDS_DEFAULT_VERSION="0.40"
+# Default OpenHands version (default: 0.41)
+export OPENHANDS_DEFAULT_VERSION="0.41"
 
 # Projects directory (default: ~/projects)  
 export OPENHANDS_PROJECTS_DIR="$HOME/projects"
@@ -163,7 +163,7 @@ oh-version 0.39 myapp
 oh-logs -f myapp
 
 # Update to latest version
-oh-update-version 0.41
+oh-update-version 0.42
 ```
 
 ## Requirements
@@ -175,57 +175,6 @@ oh-update-version 0.41
 ## License
 
 MIT License - feel free to modify and share!
-
-## Known Issues
-
-### MCP Timeout Issues with OpenHands 0.40
-
-**Status:** Root cause identified
-
-**Issue:** OpenHands 0.40 experiences timeout errors during MCP (Model Context Protocol) tool initialization, particularly on slow networks.
-
-**Architecture Background:**
-- OpenHands runs as two containers:
-  - **App container**: The main OpenHands UI and orchestration
-  - **Runtime container**: The code execution environment where your project runs
-- These containers communicate via HTTP over Docker's internal network
-
-**Root Cause:** 
-The runtime container downloads MCP tools from the internet (via `uvx mcp-server-fetch`) during initialization. This download often takes 18+ seconds on normal networks, but the app container only waits 10 seconds before timing out. On slow networks (like airline WiFi), the download takes even longer, making timeouts more frequent.
-
-**Symptoms:**
-- `httpx.ReadTimeout: timed out` errors in app container logs
-- Occurs during `add_mcp_tools_to_agent` call (~10 seconds after runtime starts)
-- Runtime container continues downloading and eventually succeeds
-- More frequent on airline WiFi or restricted networks
-
-**Current Status:**
-- ✅ **Identified**: Timeout is due to slow MCP tool downloads, not container communication
-- ✅ **Working**: OpenHands starts successfully and runtime containers initialize
-- ⚠️ **Intermittent**: MCP initialization fails on slow networks but doesn't prevent basic functionality
-- ✅ **Enabled**: MCP support is enabled for tool integration when network is fast enough
-
-**Workaround:** OpenHands still functions for basic tasks despite MCP timeout warnings. The runtime container eventually completes initialization even after the app container times out.
-
-**Debugging:** 
-To see both sides of the story:
-```bash
-# View app container logs (timeout errors appear here)
-oh-logs [project-name]
-
-# View runtime container logs (see MCP download progress)
-oh-runtime-logs [project-name]
-
-# Or watch both in real-time:
-oh-logs -f [project-name] &           # App logs in background
-oh-runtime-logs -f [project-name]     # Runtime logs in foreground
-```
-
-**Related Issues:**
-- [GitHub Issue #8862](https://github.com/All-Hands-AI/OpenHands/issues/8862) - Runtime image problems
-- [GitHub Issue #8705](https://github.com/All-Hands-AI/OpenHands/issues/8705) - MCP timeout errors
-
-For the latest status, check the OpenHands GitHub issues and releases.
 
 ## Troubleshooting
 
@@ -270,17 +219,13 @@ oh-runtime-logs -f myproject     # Runtime logs in foreground
 
 3. **Runtime issues:**
    - Ensure Docker Desktop is running
-   - Current configuration uses `0.40-nikolaik` runtime with OpenHands `0.40`
-
-4. **MCP timeout warnings:**
-   - These are currently expected and don't prevent basic functionality
-   - OpenHands will still work for code editing and basic tasks
+   - Current configuration uses `0.41-nikolaik` runtime with OpenHands `0.41`
 
 ### Environment Variables
 
 ```bash
-OPENHANDS_DEFAULT_VERSION     # OpenHands version (default: 0.40)
-OPENHANDS_RUNTIME_VERSION     # Runtime image version (default: 0.40-nikolaik)  
+OPENHANDS_DEFAULT_VERSION     # OpenHands version (default: 0.41)
+OPENHANDS_RUNTIME_VERSION     # Runtime image version (default: 0.41-nikolaik)  
 OPENHANDS_PROJECTS_DIR        # Projects directory (default: ~/projects)
 OPENHANDS_LOG_DIR            # Log directory (default: ~/.openhands-logs)
 ```
