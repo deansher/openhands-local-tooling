@@ -392,8 +392,6 @@ oh-version() {
         echo "  oh-version 0.38             # Use version 0.38 for current dir"
         echo "  oh-version main SallyR      # Use main branch for SallyR"
         echo "  oh-version 0.40 .           # Use version 0.40 for all projects"
-        echo ""
-        echo "${OH_BOLD}Available versions:${OH_RESET} 0.28, 0.35, 0.38, 0.39, 0.40, 0.41, main"
         return 0
     fi
     
@@ -453,7 +451,7 @@ oh-save() {
     
     echo "${OH_BLUE}💾 Saving session for $project_display_name...${OH_RESET}"
     
-    if docker cp "$HOME/.openhands-state-$safe_container_name" "$backup_dir/" 2>/dev/null; then
+    if cp -r "$HOME/.openhands-state-$safe_container_name" "$backup_dir/" 2>/dev/null; then
         echo "${OH_GREEN}✅ Saved session to $backup_dir${OH_RESET}"
     else
         echo "${OH_RED}✗ Failed to save session${OH_RESET}"
@@ -805,7 +803,6 @@ oh-help() {
     echo "  ${OH_GREEN}oh-version${OH_RESET} VER       Use specific OpenHands version"
     echo "  ${OH_GREEN}oh-save${OH_RESET} [PROJECT_PATH]    Save session state"
     echo "  ${OH_GREEN}oh-refresh-cache${OH_RESET}     Refresh project list cache"
-    echo "  ${OH_GREEN}oh-update-version${OH_RESET}    Update default OpenHands version"
     echo "  ${OH_GREEN}oh-help${OH_RESET}              Show this help"
     echo ""
     echo "${OH_BOLD}Configuration:${OH_RESET}"
