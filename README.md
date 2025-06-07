@@ -237,7 +237,7 @@ OPENHANDS_LOG_DIR            # Log directory (default: ~/.openhands-logs)
 
 ## Testing Protocol
 
-**Important:** Run this complete testing protocol before committing any changes to ensure all functionality works correctly.
+**Important:** Use this testing protocol to validate changes before committing. This is a 10-15 minute process, so it does make sense to use your judgment and run a subset if the potential impact of your changes is isolated.
 
 **Note:** Tests use a separate `~/oh-test-projects` directory to avoid interfering with your real projects.
 
@@ -535,7 +535,7 @@ Before committing, ensure all tests pass:
 - ( ) Edge cases handled gracefully
 - ( ) All containers cleaned up after tests
 
-**Time estimate:** 15-20 minutes for full protocol
+**Time estimate:** 10-15 minutes for full protocol
 
 **Quick smoke test** (for minor changes):
 ```bash

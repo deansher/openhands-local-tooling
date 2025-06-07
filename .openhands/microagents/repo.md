@@ -1,0 +1,1 @@
+Study our README.md and openhands.sh before beginning work. Confer with your user about how much of the testing protocol you should run before committing.
