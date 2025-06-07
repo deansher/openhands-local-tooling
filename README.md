@@ -210,12 +210,15 @@ The runtime container downloads MCP tools from the internet (via `uvx mcp-server
 **Debugging:** 
 To see both sides of the story:
 ```bash
-# View app container logs (what you normally see)
+# View app container logs (timeout errors appear here)
 oh-logs [project-name]
 
 # View runtime container logs (see MCP download progress)
-docker ps --filter "name=openhands-runtime-" --format "table {{.Names}}"
-docker logs [runtime-container-name]
+oh-runtime-logs [project-name]
+
+# Or watch both in real-time:
+oh-logs -f [project-name] &           # App logs in background
+oh-runtime-logs -f [project-name]     # Runtime logs in foreground
 ```
 
 **Related Issues:**
