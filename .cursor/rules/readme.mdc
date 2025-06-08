@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Read [README.md](mdc:README.md) and [openhands.sh](mdc:shell/openhands.sh) before doing any work in this repo.
