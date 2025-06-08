@@ -28,6 +28,9 @@ OH_YELLOW="\033[33m"
 OH_BLUE="\033[34m"
 OH_RED="\033[31m"
 
+# TOML parser command (will be set by _oh_check_toml_parser)
+OH_TOML_PARSER=""
+
 # Cache for project names
 _OH_PROJECTS_CACHE=()
 _OH_PROJECTS_CACHE_TIME=0
@@ -73,6 +76,206 @@ _oh_get_project_path() {
     fi
 }
 
+# Check if TOML parser is available
+_oh_check_toml_parser() {
+    # Try Python with toml module first
+    if command -v python3 >/dev/null 2>&1; then
+        if python3 -c "import toml" 2>/dev/null; then
+            OH_TOML_PARSER="python3"
+            return 0
+        fi
+    fi
+    
+    # Try Python 2 as fallback
+    if command -v python >/dev/null 2>&1; then
+        if python -c "import toml" 2>/dev/null; then
+            OH_TOML_PARSER="python"
+            return 0
+        fi
+    fi
+    
+    # No TOML parser available
+    OH_TOML_PARSER=""
+    return 1
+}
+
+# Check config file permissions for security
+_oh_check_config_permissions() {
+    local config_file="$1"
+    
+    if [[ ! -f "$config_file" ]]; then
+        return 0
+    fi
+    
+    # Get file permissions
+    local perms
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        perms=$(stat -f "%OLp" "$config_file")
+    else
+        # Linux
+        perms=$(stat -c "%a" "$config_file")
+    fi
+    
+    # Check if world-readable (last digit > 4)
+    if [[ ${perms: -1} -ge 4 ]]; then
+        echo "${OH_YELLOW}⚠️  Warning: $config_file is world-readable (permissions: $perms)${OH_RESET}"
+        echo "   This file may contain API keys. Consider restricting permissions:"
+        echo "   chmod 600 $config_file"
+        echo ""
+    fi
+}
+
+# Parse TOML file and export variables
+_oh_parse_toml_file() {
+    local config_file="$1"
+    
+    if [[ ! -f "$config_file" ]]; then
+        return 1
+    fi
+    
+    # Check permissions
+    _oh_check_config_permissions "$config_file"
+    
+    # Parse TOML and export variables using Python
+    if [[ "$OH_TOML_PARSER" == "python"* ]]; then
+        $OH_TOML_PARSER - "$config_file" << 'EOF'
+import sys
+import os
+try:
+    import toml
+except ImportError:
+    sys.exit(1)
+
+config_file = sys.argv[1]
+
+try:
+    with open(config_file, 'r') as f:
+        config = toml.load(f)
+except Exception as e:
+    print("Error parsing {}: {}".format(config_file, e), file=sys.stderr)
+    sys.exit(1)
+
+# Mapping of TOML keys to environment variables
+mappings = {
+    'llm': {
+        'model': 'LLM_MODEL',
+        'api_key': 'LLM_API_KEY',
+        'search_api_key': 'SEARCH_API_KEY',
+        'num_retries': 'LLM_NUM_RETRIES',
+        'retry_min_wait': 'LLM_RETRY_MIN_WAIT',
+        'retry_max_wait': 'LLM_RETRY_MAX_WAIT',
+        'timeout': 'LLM_TIMEOUT',
+        'temperature': 'LLM_TEMPERATURE',
+        'top_p': 'LLM_TOP_P',
+        'max_input_tokens': 'LLM_MAX_INPUT_TOKENS',
+        'max_output_tokens': 'LLM_MAX_OUTPUT_TOKENS',
+        'disable_vision': 'LLM_DISABLE_VISION'
+    },
+    'sandbox': {
+        'runtime_container_image': 'SANDBOX_RUNTIME_CONTAINER_IMAGE',
+        'enable_gpu': 'SANDBOX_ENABLE_GPU',
+        'volumes': 'SANDBOX_VOLUMES',
+        'user_id': 'SANDBOX_USER_ID'
+    },
+    'core': {
+        'max_iterations': 'CORE_MAX_ITERATIONS',
+        'max_budget_per_task': 'CORE_MAX_BUDGET_PER_TASK'
+    },
+    'agent': {
+        'enable_cli': 'AGENT_ENABLE_CLI',
+        'enable_browsing_delegate': 'AGENT_ENABLE_BROWSING_DELEGATE'
+    },
+    'security': {
+        'confirmation_mode': 'SECURITY_CONFIRMATION_MODE',
+        'security_level': 'SECURITY_LEVEL'
+    }
+}
+
+# Export variables
+for section, keys in mappings.items():
+    if section in config:
+        for key, env_var in keys.items():
+            if key in config[section]:
+                value = config[section][key]
+                # Convert boolean to string
+                if isinstance(value, bool):
+                    value = 'true' if value else 'false'
+                # Handle special formatting for certain values
+                if env_var == 'LLM_API_KEY' or env_var == 'SEARCH_API_KEY':
+                    # Mask API keys in output
+                    if len(str(value)) > 8:
+                        masked = "{}...{}".format(value[:4], value[-4:])
+                        print("export {}='{}'".format(env_var, value))
+                        print("# {} set from config (masked: {})".format(env_var, masked), file=sys.stderr)
+                    else:
+                        print("export {}='{}'".format(env_var, value))
+                else:
+                    print("export {}='{}'".format(env_var, value))
+EOF
+    fi
+}
+
+# Load OpenHands configuration from TOML files
+load_openhands_config() {
+    local project_path="$1"
+    
+    # Check if TOML parser is available
+    if ! _oh_check_toml_parser; then
+        return 0  # Silently skip if no parser available
+    fi
+    
+    # Configuration file paths in priority order (lowest to highest)
+    local config_files=()
+    
+    # System config (optional)
+    if [[ -f "/etc/openhands/config.toml" ]]; then
+        config_files+=("/etc/openhands/config.toml")
+    fi
+    
+    # User global config
+    if [[ -f "$HOME/.openhands/config.toml" ]]; then
+        config_files+=("$HOME/.openhands/config.toml")
+    fi
+    
+    # Project-specific config
+    if [[ -n "$project_path" ]] && [[ "$project_path" != "." ]]; then
+        local project_config="$OPENHANDS_PROJECTS_DIR/$project_path/.openhands/config.toml"
+        if [[ -f "$project_config" ]]; then
+            config_files+=("$project_config")
+        fi
+    fi
+    
+    # Load configs in order (later ones override earlier ones)
+    local loaded_any=false
+    for config_file in "${config_files[@]}"; do
+        if [[ -f "$config_file" ]]; then
+            # Parse and export variables, capturing stdout and stderr separately
+            local exports
+            local stderr_output
+            exports=$(_oh_parse_toml_file "$config_file" 2>&1)
+            local exit_code=$?
+            
+            if [[ $exit_code -eq 0 ]]; then
+                # Filter out stderr messages from the exports
+                local clean_exports=$(echo "$exports" | grep "^export ")
+                # Execute the exports
+                eval "$clean_exports"
+                loaded_any=true
+                echo "${OH_BLUE}📋 Loaded config from: $config_file${OH_RESET}" >&2
+            else
+                echo "${OH_YELLOW}⚠️  Failed to parse config: $config_file${OH_RESET}" >&2
+                echo "$exports" >&2
+            fi
+        fi
+    done
+    
+    # Show if config was loaded
+    if [[ "$loaded_any" == true ]]; then
+        echo "${OH_GREEN}✅ Configuration loaded from TOML files${OH_RESET}" >&2
+    fi
+}
+
 # Main OpenHands launcher
 oh() {
     if [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
@@ -82,6 +285,7 @@ oh() {
         echo "  oh                    Launch for current directory"
         echo "  oh PROJECT_PATH       Launch for ~/projects/PROJECT_PATH"
         echo "  oh .                  Launch for entire projects directory"
+        echo "  oh --show-config      Show configuration that would be used"
         echo "  oh --help            Show this help"
         echo ""
         echo "${OH_BOLD}Examples:${OH_RESET}"
@@ -89,6 +293,18 @@ oh() {
         echo "  oh SallyR"
         echo "  oh chat/AdmiredLeadership/cra-backend"
         echo "  oh .                  # Access all projects"
+        return 0
+    fi
+    
+    # Handle --show-config flag
+    if [[ "$1" == "--show-config" ]]; then
+        shift
+        local project_arg="$1"
+        if [[ -z "$project_arg" ]]; then
+            oh-config-check
+        else
+            oh-config-check "$project_arg"
+        fi
         return 0
     fi
 
@@ -147,6 +363,25 @@ oh() {
     # Create safe container name
     local safe_container_name=$(_oh_safe_container_name "$project_path")
     
+    # Load configuration from TOML files
+    load_openhands_config "$project_path"
+    
+    # First-run experience: check if API key is configured
+    if [[ -z "$LLM_API_KEY" ]] && ! [[ -f "$HOME/.openhands/config.toml" ]]; then
+        echo "${OH_YELLOW}⚠️  No LLM API key configured${OH_RESET}"
+        echo ""
+        echo "OpenHands needs an API key to function. Would you like to create a config file?"
+        echo -n "Create config? (Y/n): "
+        read create_config
+        if [[ "$create_config" != "n" ]] && [[ "$create_config" != "N" ]]; then
+            oh-config-init --global
+            echo ""
+            echo "Please edit the config file to add your API key:"
+            echo "  ${OH_BOLD}oh-config-edit --global${OH_RESET}"
+            return 0
+        fi
+    fi
+    
     # Check if Docker is running
     if ! docker info >/dev/null 2>&1; then
         echo "${OH_RED}✗ Docker is not running! Please start Docker Desktop.${OH_RESET}"
@@ -186,17 +421,60 @@ oh() {
     echo "🏷️  Version: $OPENHANDS_DEFAULT_VERSION (runtime: $OPENHANDS_RUNTIME_VERSION)"
     echo "📝 Log file: $log_file"
     
-    if docker run -d --rm \
-        -e SANDBOX_RUNTIME_CONTAINER_IMAGE=docker.all-hands.dev/all-hands-ai/runtime:${OPENHANDS_RUNTIME_VERSION} \
-        -e SANDBOX_USER_ID=$(id -u) \
-        -e SANDBOX_VOLUMES="$absolute_project_path:/workspace:rw" \
-        -e LOG_ALL_EVENTS=true \
-        -v /var/run/docker.sock:/var/run/docker.sock \
-        -v ~/.openhands-state-$safe_container_name:/.openhands-state \
-        -p $port:3000 \
-        --add-host host.docker.internal:host-gateway \
-        --name "openhands-app-$safe_container_name" \
-        docker.all-hands.dev/all-hands-ai/openhands:${OPENHANDS_DEFAULT_VERSION} >/dev/null; then
+    # Build docker run command with environment variables
+    local docker_cmd="docker run -d --rm"
+    
+    # Add environment variables from config or defaults
+    docker_cmd="$docker_cmd -e SANDBOX_RUNTIME_CONTAINER_IMAGE=${SANDBOX_RUNTIME_CONTAINER_IMAGE:-docker.all-hands.dev/all-hands-ai/runtime:${OPENHANDS_RUNTIME_VERSION}}"
+    docker_cmd="$docker_cmd -e SANDBOX_USER_ID=${SANDBOX_USER_ID:-$(id -u)}"
+    
+    # Handle SANDBOX_VOLUMES - append project path if additional volumes specified
+    if [[ -n "$SANDBOX_VOLUMES" ]]; then
+        docker_cmd="$docker_cmd -e SANDBOX_VOLUMES=\"$absolute_project_path:/workspace:rw,$SANDBOX_VOLUMES\""
+    else
+        docker_cmd="$docker_cmd -e SANDBOX_VOLUMES=\"$absolute_project_path:/workspace:rw\""
+    fi
+    
+    docker_cmd="$docker_cmd -e LOG_ALL_EVENTS=true"
+    
+    # Add LLM configuration if set
+    [[ -n "$LLM_MODEL" ]] && docker_cmd="$docker_cmd -e LLM_MODEL=\"$LLM_MODEL\""
+    [[ -n "$LLM_API_KEY" ]] && docker_cmd="$docker_cmd -e LLM_API_KEY=\"$LLM_API_KEY\""
+    [[ -n "$SEARCH_API_KEY" ]] && docker_cmd="$docker_cmd -e SEARCH_API_KEY=\"$SEARCH_API_KEY\""
+    [[ -n "$LLM_NUM_RETRIES" ]] && docker_cmd="$docker_cmd -e LLM_NUM_RETRIES=\"$LLM_NUM_RETRIES\""
+    [[ -n "$LLM_RETRY_MIN_WAIT" ]] && docker_cmd="$docker_cmd -e LLM_RETRY_MIN_WAIT=\"$LLM_RETRY_MIN_WAIT\""
+    [[ -n "$LLM_RETRY_MAX_WAIT" ]] && docker_cmd="$docker_cmd -e LLM_RETRY_MAX_WAIT=\"$LLM_RETRY_MAX_WAIT\""
+    [[ -n "$LLM_TIMEOUT" ]] && docker_cmd="$docker_cmd -e LLM_TIMEOUT=\"$LLM_TIMEOUT\""
+    [[ -n "$LLM_TEMPERATURE" ]] && docker_cmd="$docker_cmd -e LLM_TEMPERATURE=\"$LLM_TEMPERATURE\""
+    [[ -n "$LLM_TOP_P" ]] && docker_cmd="$docker_cmd -e LLM_TOP_P=\"$LLM_TOP_P\""
+    [[ -n "$LLM_MAX_INPUT_TOKENS" ]] && docker_cmd="$docker_cmd -e LLM_MAX_INPUT_TOKENS=\"$LLM_MAX_INPUT_TOKENS\""
+    [[ -n "$LLM_MAX_OUTPUT_TOKENS" ]] && docker_cmd="$docker_cmd -e LLM_MAX_OUTPUT_TOKENS=\"$LLM_MAX_OUTPUT_TOKENS\""
+    [[ -n "$LLM_DISABLE_VISION" ]] && docker_cmd="$docker_cmd -e LLM_DISABLE_VISION=\"$LLM_DISABLE_VISION\""
+    
+    # Add sandbox configuration if set
+    [[ -n "$SANDBOX_ENABLE_GPU" ]] && docker_cmd="$docker_cmd -e SANDBOX_ENABLE_GPU=\"$SANDBOX_ENABLE_GPU\""
+    
+    # Add core configuration if set
+    [[ -n "$CORE_MAX_ITERATIONS" ]] && docker_cmd="$docker_cmd -e CORE_MAX_ITERATIONS=\"$CORE_MAX_ITERATIONS\""
+    [[ -n "$CORE_MAX_BUDGET_PER_TASK" ]] && docker_cmd="$docker_cmd -e CORE_MAX_BUDGET_PER_TASK=\"$CORE_MAX_BUDGET_PER_TASK\""
+    
+    # Add agent configuration if set
+    [[ -n "$AGENT_ENABLE_CLI" ]] && docker_cmd="$docker_cmd -e AGENT_ENABLE_CLI=\"$AGENT_ENABLE_CLI\""
+    [[ -n "$AGENT_ENABLE_BROWSING_DELEGATE" ]] && docker_cmd="$docker_cmd -e AGENT_ENABLE_BROWSING_DELEGATE=\"$AGENT_ENABLE_BROWSING_DELEGATE\""
+    
+    # Add security configuration if set
+    [[ -n "$SECURITY_CONFIRMATION_MODE" ]] && docker_cmd="$docker_cmd -e SECURITY_CONFIRMATION_MODE=\"$SECURITY_CONFIRMATION_MODE\""
+    [[ -n "$SECURITY_LEVEL" ]] && docker_cmd="$docker_cmd -e SECURITY_LEVEL=\"$SECURITY_LEVEL\""
+    
+    # Add volumes and ports
+    docker_cmd="$docker_cmd -v /var/run/docker.sock:/var/run/docker.sock"
+    docker_cmd="$docker_cmd -v ~/.openhands-state-$safe_container_name:/.openhands-state"
+    docker_cmd="$docker_cmd -p $port:3000"
+    docker_cmd="$docker_cmd --add-host host.docker.internal:host-gateway"
+    docker_cmd="$docker_cmd --name \"openhands-app-$safe_container_name\""
+    docker_cmd="$docker_cmd docker.all-hands.dev/all-hands-ai/openhands:${OPENHANDS_DEFAULT_VERSION}"
+    
+    if eval "$docker_cmd" >/dev/null; then
         
         echo "${OH_GREEN}✅ OpenHands started successfully!${OH_RESET}"
         echo ""
@@ -254,6 +532,13 @@ oh-list() {
         done
     fi
     echo ""
+    
+    # Show config status
+    if _oh_check_toml_parser >/dev/null 2>&1; then
+        if [[ -f "$HOME/.openhands/config.toml" ]] || [[ -f "/etc/openhands/config.toml" ]]; then
+            echo "  ${OH_GREEN}📋 Config files detected${OH_RESET} (use oh-config-check to view)"
+        fi
+    fi
 }
 
 # Stop OpenHands for a specific project
@@ -786,19 +1071,384 @@ oh-containers() {
     echo "${OH_BOLD}Summary:${OH_RESET} $app_count app container(s), $runtime_count runtime container(s)"
 }
 
+# Initialize config file
+oh-config-init() {
+    if [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
+        echo "${OH_BOLD}oh-config-init - Create a template config.toml file${OH_RESET}"
+        echo ""
+        echo "${OH_BOLD}Usage:${OH_RESET}"
+        echo "  oh-config-init --global     Create global config at ~/.openhands/config.toml"
+        echo "  oh-config-init --project    Create project config in current directory"
+        echo "  oh-config-init              Interactive mode (asks where to create)"
+        echo ""
+        echo "${OH_BOLD}Examples:${OH_RESET}"
+        echo "  oh-config-init --global"
+        echo "  cd ~/projects/myapp && oh-config-init --project"
+        return 0
+    fi
+    
+    local config_path=""
+    local config_type=""
+    
+    if [[ "$1" == "--global" ]]; then
+        config_path="$HOME/.openhands/config.toml"
+        config_type="global"
+    elif [[ "$1" == "--project" ]]; then
+        config_path=".openhands/config.toml"
+        config_type="project"
+    else
+        # Interactive mode
+        echo "${OH_BOLD}Where would you like to create the config file?${OH_RESET}"
+        echo "1) Global config (~/.openhands/config.toml)"
+        echo "2) Project config (current directory)"
+        echo -n "Choice (1 or 2): "
+        read choice
+        
+        case "$choice" in
+            1)
+                config_path="$HOME/.openhands/config.toml"
+                config_type="global"
+                ;;
+            2)
+                config_path=".openhands/config.toml"
+                config_type="project"
+                ;;
+            *)
+                echo "${OH_RED}Invalid choice${OH_RESET}"
+                return 1
+                ;;
+        esac
+    fi
+    
+    # Create directory if needed
+    local config_dir=$(dirname "$config_path")
+    mkdir -p "$config_dir"
+    
+    # Check if file already exists
+    if [[ -f "$config_path" ]]; then
+        echo "${OH_YELLOW}⚠️  Config file already exists at: $config_path${OH_RESET}"
+        echo -n "Overwrite? (y/N): "
+        read confirm
+        if [[ "$confirm" != "y" ]] && [[ "$confirm" != "Y" ]]; then
+            echo "Cancelled"
+            return 0
+        fi
+    fi
+    
+    # Create template config file
+    cat > "$config_path" << 'EOF'
+# OpenHands Configuration File
+# This file uses TOML format: https://toml.io/
+
+[llm]
+# LLM model to use (e.g., "anthropic/claude-sonnet-4-20250514", "openai/gpt-4")
+# model = "anthropic/claude-sonnet-4-20250514"
+
+# API key for the LLM provider
+# api_key = "sk-..."
+
+# Tavily API key for web search capabilities
+# search_api_key = "tvly-..."
+
+# Retry configuration
+# num_retries = 4
+# retry_min_wait = 5
+# retry_max_wait = 30
+# timeout = 300
+
+# Model parameters
+# temperature = 0.0
+# top_p = 1.0
+# max_input_tokens = 30000
+# max_output_tokens = 5000
+
+# Disable vision capabilities
+# disable_vision = false
+
+[sandbox]
+# Runtime container image
+# runtime_container_image = "docker.all-hands.dev/all-hands-ai/runtime:0.41-nikolaik"
+
+# Enable GPU support
+# enable_gpu = false
+
+# Additional volumes to mount (comma-separated)
+# volumes = "/additional/path:/workspace/extra:rw"
+
+# User ID for the sandbox
+# user_id = 1000
+
+[core]
+# Maximum iterations for task completion
+# max_iterations = 250
+
+# Maximum budget per task (0.0 = unlimited)
+# max_budget_per_task = 0.0
+
+[agent]
+# Enable CLI mode
+# enable_cli = false
+
+# Enable browsing delegate
+# enable_browsing_delegate = false
+
+[security]
+# Confirmation mode: "disabled", "enabled"
+# confirmation_mode = "disabled"
+
+# Security level: "standard", "strict"
+# security_level = "standard"
+EOF
+    
+    # Set appropriate permissions
+    chmod 600 "$config_path"
+    
+    echo "${OH_GREEN}✅ Created config template at: $config_path${OH_RESET}"
+    echo ""
+    echo "Next steps:"
+    echo "1. Edit the file to add your configuration:"
+    echo "   ${OH_BOLD}$EDITOR $config_path${OH_RESET}"
+    echo ""
+    echo "2. Uncomment and set the values you need"
+    echo ""
+    echo "3. Test your configuration:"
+    echo "   ${OH_BOLD}oh-config-check${OH_RESET}"
+    
+    if [[ "$config_type" == "global" ]]; then
+        echo ""
+        echo "This global config will apply to all projects unless overridden."
+    else
+        echo ""
+        echo "This project config will override global settings for this project."
+    fi
+}
+
+# Check config files
+oh-config-check() {
+    if [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
+        echo "${OH_BOLD}oh-config-check - Validate config files and show what would be loaded${OH_RESET}"
+        echo ""
+        echo "${OH_BOLD}Usage:${OH_RESET}"
+        echo "  oh-config-check [PROJECT_PATH]    Check config for specific project"
+        echo "  oh-config-check                   Check config for current directory"
+        echo ""
+        echo "Shows which config files would be loaded and their values"
+        return 0
+    fi
+    
+    local project_path=""
+    
+    if [[ $# -eq 0 ]]; then
+        # No argument: use current directory
+        local rel_path=$(_oh_get_project_path "$PWD")
+        if [[ -n "$rel_path" ]]; then
+            project_path="$rel_path"
+        else
+            project_path=$(basename "$PWD")
+        fi
+    else
+        project_path="$1"
+    fi
+    
+    echo "${OH_BOLD}🔍 Checking OpenHands configuration...${OH_RESET}"
+    echo ""
+    
+    # Check if TOML parser is available
+    if ! _oh_check_toml_parser; then
+        echo "${OH_YELLOW}⚠️  No TOML parser available${OH_RESET}"
+        echo "Install Python toml module to enable config file support:"
+        echo "  pip install toml"
+        return 1
+    fi
+    
+    echo "${OH_GREEN}✅ TOML parser available: $OH_TOML_PARSER${OH_RESET}"
+    echo ""
+    
+    # Build list of config files
+    local config_files=()
+    
+    # System config (optional)
+    if [[ -f "/etc/openhands/config.toml" ]]; then
+        config_files+=("/etc/openhands/config.toml")
+    fi
+    
+    # User global config
+    if [[ -f "$HOME/.openhands/config.toml" ]]; then
+        config_files+=("$HOME/.openhands/config.toml")
+    fi
+    
+    # Project-specific config
+    if [[ -n "$project_path" ]] && [[ "$project_path" != "." ]]; then
+        local project_config="$OPENHANDS_PROJECTS_DIR/$project_path/.openhands/config.toml"
+        if [[ -f "$project_config" ]]; then
+            config_files+=("$project_config")
+        fi
+    fi
+    
+    # Check config files in order
+    echo "${OH_BOLD}Configuration files (in priority order):${OH_RESET}"
+    echo ""
+    
+    # System config
+    if [[ -f "/etc/openhands/config.toml" ]]; then
+        echo "1. System config: /etc/openhands/config.toml ${OH_GREEN}[EXISTS]${OH_RESET}"
+        _oh_check_config_permissions "/etc/openhands/config.toml"
+    else
+        echo "1. System config: /etc/openhands/config.toml ${OH_YELLOW}[NOT FOUND]${OH_RESET}"
+    fi
+    
+    # Global config
+    if [[ -f "$HOME/.openhands/config.toml" ]]; then
+        echo "2. Global config: $HOME/.openhands/config.toml ${OH_GREEN}[EXISTS]${OH_RESET}"
+        _oh_check_config_permissions "$HOME/.openhands/config.toml"
+    else
+        echo "2. Global config: $HOME/.openhands/config.toml ${OH_YELLOW}[NOT FOUND]${OH_RESET}"
+    fi
+    
+    # Project config
+    if [[ -n "$project_path" ]] && [[ "$project_path" != "." ]]; then
+        local project_config="$OPENHANDS_PROJECTS_DIR/$project_path/.openhands/config.toml"
+        if [[ -f "$project_config" ]]; then
+            echo "3. Project config: $project_config ${OH_GREEN}[EXISTS]${OH_RESET}"
+            _oh_check_config_permissions "$project_config"
+        else
+            echo "3. Project config: $project_config ${OH_YELLOW}[NOT FOUND]${OH_RESET}"
+        fi
+    fi
+    
+    echo ""
+    echo "${OH_BOLD}Environment variables that would be set:${OH_RESET}"
+    echo ""
+    
+    # Show what would be loaded from each config file
+    # Need to ensure TOML parser is available
+    _oh_check_toml_parser
+    
+    for config_file in "${config_files[@]}"; do
+        if [[ -f "$config_file" ]]; then
+            echo "From $config_file:"
+            local exports=$(_oh_parse_toml_file "$config_file" 2>/dev/null | grep "^export ")
+            if [[ -n "$exports" ]]; then
+                echo "$exports" | while read line; do
+                    # Extract variable name and value
+                    local var_name=$(echo "$line" | sed "s/export \([^=]*\)=.*/\1/")
+                    local var_value=$(echo "$line" | sed "s/export [^=]*='\(.*\)'/\1/")
+                    
+                    # Mask sensitive values
+                    if [[ "$var_name" == "LLM_API_KEY" ]] || [[ "$var_name" == "SEARCH_API_KEY" ]]; then
+                        if [[ ${#var_value} -gt 8 ]]; then
+                            echo "  $var_name=${var_value:0:4}...${var_value: -4}"
+                        else
+                            echo "  $var_name=***"
+                        fi
+                    else
+                        echo "  $var_name=$var_value"
+                    fi
+                done
+            fi
+            echo ""
+        fi
+    done
+}
+
+# Edit config file
+oh-config-edit() {
+    if [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
+        echo "${OH_BOLD}oh-config-edit - Edit OpenHands config file${OH_RESET}"
+        echo ""
+        echo "${OH_BOLD}Usage:${OH_RESET}"
+        echo "  oh-config-edit --global              Edit global config"
+        echo "  oh-config-edit --project [PATH]      Edit project config"
+        echo "  oh-config-edit                       Interactive mode"
+        echo ""
+        echo "Opens config file in \$EDITOR (default: vi)"
+        return 0
+    fi
+    
+    local config_path=""
+    local editor="${EDITOR:-vi}"
+    
+    if [[ "$1" == "--global" ]]; then
+        config_path="$HOME/.openhands/config.toml"
+    elif [[ "$1" == "--project" ]]; then
+        local project_path="$2"
+        if [[ -z "$project_path" ]]; then
+            # Use current directory
+            local rel_path=$(_oh_get_project_path "$PWD")
+            if [[ -n "$rel_path" ]]; then
+                config_path="$OPENHANDS_PROJECTS_DIR/$rel_path/.openhands/config.toml"
+            else
+                config_path=".openhands/config.toml"
+            fi
+        else
+            config_path="$OPENHANDS_PROJECTS_DIR/$project_path/.openhands/config.toml"
+        fi
+    else
+        # Interactive mode
+        echo "${OH_BOLD}Which config file would you like to edit?${OH_RESET}"
+        echo "1) Global config (~/.openhands/config.toml)"
+        echo "2) Project config (current directory)"
+        echo -n "Choice (1 or 2): "
+        read choice
+        
+        case "$choice" in
+            1)
+                config_path="$HOME/.openhands/config.toml"
+                ;;
+            2)
+                config_path=".openhands/config.toml"
+                ;;
+            *)
+                echo "${OH_RED}Invalid choice${OH_RESET}"
+                return 1
+                ;;
+        esac
+    fi
+    
+    # Create file if it doesn't exist
+    if [[ ! -f "$config_path" ]]; then
+        echo "${OH_YELLOW}Config file doesn't exist: $config_path${OH_RESET}"
+        echo -n "Create it? (Y/n): "
+        read confirm
+        if [[ "$confirm" != "n" ]] && [[ "$confirm" != "N" ]]; then
+            mkdir -p "$(dirname "$config_path")"
+            oh-config-init --global >/dev/null 2>&1 || oh-config-init --project >/dev/null 2>&1
+        else
+            return 0
+        fi
+    fi
+    
+    # Edit the file
+    $editor "$config_path"
+    
+    echo ""
+    echo "${OH_GREEN}✅ Finished editing: $config_path${OH_RESET}"
+    echo ""
+    echo "Test your configuration with: oh-config-check"
+}
+
 # Show all commands
 oh-help() {
     echo "${OH_BOLD}OpenHands Project Management Commands${OH_RESET}"
     echo ""
-    echo "${OH_BOLD}Commands:${OH_RESET}"
+    echo "${OH_BOLD}Core Commands:${OH_RESET}"
     echo "  ${OH_GREEN}oh${OH_RESET} [PROJECT_PATH]          Launch OpenHands"
     echo "  ${OH_GREEN}oh-list${OH_RESET}              List running instances"
     echo "  ${OH_GREEN}oh-stop${OH_RESET} [PROJECT_PATH]    Stop specific instance"
     echo "  ${OH_GREEN}oh-stop-all${OH_RESET}          Stop all instances"
     echo "  ${OH_GREEN}oh-clean${OH_RESET}             Clean up old containers"
+    echo ""
+    echo "${OH_BOLD}Logging Commands:${OH_RESET}"
     echo "  ${OH_GREEN}oh-logs${OH_RESET} [OPTIONS] [PROJECT]   View app container logs"
     echo "  ${OH_GREEN}oh-runtime-logs${OH_RESET} [OPTIONS] [PROJECT]   View runtime container logs"
     echo "  ${OH_GREEN}oh-containers${OH_RESET} [OPTIONS]   Show all containers with relationships"
+    echo ""
+    echo "${OH_BOLD}Configuration Commands:${OH_RESET}"
+    echo "  ${OH_GREEN}oh-config-init${OH_RESET} [--global|--project]   Create config template"
+    echo "  ${OH_GREEN}oh-config-check${OH_RESET} [PROJECT]             Check config files"
+    echo "  ${OH_GREEN}oh-config-edit${OH_RESET} [--global|--project]   Edit config file"
+    echo ""
+    echo "${OH_BOLD}Convenience Commands:${OH_RESET}"
     echo "  ${OH_GREEN}ohcd${OH_RESET} PROJECT_PATH         CD to project and launch"
     echo "  ${OH_GREEN}oh-version${OH_RESET} VER       Use specific OpenHands version"
     echo "  ${OH_GREEN}oh-save${OH_RESET} [PROJECT_PATH]    Save session state"
@@ -809,6 +1459,10 @@ oh-help() {
     echo "  OPENHANDS_DEFAULT_VERSION     Current: ${OPENHANDS_DEFAULT_VERSION}"
     echo "  OPENHANDS_RUNTIME_VERSION     Current: ${OPENHANDS_RUNTIME_VERSION}"
     echo "  OPENHANDS_PROJECTS_DIR        Current: ${OPENHANDS_PROJECTS_DIR}"
+    echo ""
+    echo "${OH_BOLD}Config Files:${OH_RESET}"
+    echo "  Global: ~/.openhands/config.toml"
+    echo "  Project: [project]/.openhands/config.toml"
     echo ""
     echo "Add --help to any command for detailed usage"
 }
@@ -893,6 +1547,7 @@ if [[ -n "$ZSH_VERSION" ]]; then
     compdef _oh_complete oh-logs
     compdef _oh_complete oh-runtime-logs
     compdef _oh_complete oh-containers
+    compdef _oh_complete oh-config-check
 fi
 
 # Enable tab completion for the commands (bash)
@@ -906,4 +1561,5 @@ if [[ -n "$BASH_VERSION" ]]; then
     complete -F _oh_complete_bash oh-logs
     complete -F _oh_complete_bash oh-runtime-logs
     complete -F _oh_complete_bash oh-containers
+    complete -F _oh_complete_bash oh-config-check
 fi 
