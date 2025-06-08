@@ -92,6 +92,11 @@ source ~/.zshrc
 - `oh-runtime-logs [OPTIONS] [PROJECT_PATH]` - View runtime container logs
 - `oh-containers [OPTIONS]` - Show all containers with relationships
 
+### Configuration Commands
+- `oh-config-init [--global|--project]` - Create a template config.toml file
+- `oh-config-check [PROJECT_PATH]` - Validate config files and show what would be loaded
+- `oh-config-edit [--global|--project]` - Edit config file in your $EDITOR
+
 ### Convenience Commands
 - `ohcd PROJECT_PATH` - Change directory and launch OpenHands
 - `oh-version VERSION [PROJECT_PATH]` - Launch with specific OpenHands version
@@ -127,6 +132,50 @@ oh-containers -a          # Include stopped containers
 
 ## Configuration
 
+OpenHands Local Tooling supports two configuration methods:
+
+### 1. Configuration Files (Recommended)
+
+Use TOML configuration files for persistent settings. Files are loaded in priority order (later overrides earlier):
+
+1. System config: `/etc/openhands/config.toml` (optional)
+2. Global config: `~/.openhands/config.toml`
+3. Project config: `[project]/.openhands/config.toml`
+
+**Quick Start:**
+```bash
+# Create a global config file
+oh-config-init --global
+
+# Edit your configuration
+oh-config-edit --global
+
+# Check your configuration
+oh-config-check
+```
+
+**Example config.toml:**
+```toml
+[llm]
+model = "anthropic/claude-sonnet-4-20250514"
+api_key = "sk-..."
+search_api_key = "tvly-..."  # Tavily API key
+
+[sandbox]
+runtime_container_image = "docker.all-hands.dev/all-hands-ai/runtime:0.41-nikolaik"
+enable_gpu = false
+
+[core]
+max_iterations = 250
+```
+
+**Security Note:** Config files may contain API keys. Set appropriate permissions:
+```bash
+chmod 600 ~/.openhands/config.toml
+```
+
+### 2. Environment Variables
+
 Set these environment variables in your shell configuration:
 
 ```bash
@@ -141,7 +190,16 @@ export OPENHANDS_LOG_DIR="$HOME/.openhands-logs"
 
 # Log retention in days (default: 30)
 export OPENHANDS_LOG_RETENTION_DAYS="30"
+
+# LLM Configuration
+export LLM_MODEL="anthropic/claude-sonnet-4-20250514"
+export LLM_API_KEY="sk-..."
+export SEARCH_API_KEY="tvly-..."
 ```
+
+**Note:** Environment variables always override config file values.
+
+For detailed configuration reference, see [CONFIG.md](CONFIG.md).
 
 ## Examples
 
@@ -170,6 +228,10 @@ oh-update-version 0.42
 - Docker Desktop
 - macOS or Linux
 - Bash or Zsh shell
+- Python with `toml` module (for config file support):
+  ```bash
+  pip install toml  # or pip3 install toml
+  ```
 
 ## License
 
@@ -240,6 +302,8 @@ OPENHANDS_LOG_DIR            # Log directory (default: ~/.openhands-logs)
 **Important:** Use this testing protocol to validate changes before committing. This is a 10-15 minute process, so it does make sense to use your judgment and run a subset if the potential impact of your changes is isolated.
 
 **Note:** Tests use a separate `~/oh-test-projects` directory to avoid interfering with your real projects.
+
+**Shell Compatibility:** The tooling supports both bash and zsh. Shell compatibility tests (Test 14) are only needed when modifying shell scripts, especially interactive prompts or shell-specific syntax.
 
 ### Pre-Test Setup
 
@@ -493,6 +557,41 @@ oh-stop-all
 # Verify: Stops all instances, shows count
 ```
 
+### Shell Compatibility Tests
+
+**When to run:** After changes to shell scripts, especially interactive prompts or shell-specific syntax.
+
+#### ( ) Test 14: Cross-Shell Interactive Prompts
+
+```bash
+# Test in current shell (quick check)
+echo "Testing in $SHELL"
+
+# Remove existing config to trigger first-run experience
+mv ~/.openhands/config.toml ~/.openhands/config.toml.bak 2>/dev/null
+
+# Test first-run prompt (type 'n' when prompted)
+oh test-project-1
+# Verify: Prompt appears correctly without errors, type 'n' to skip
+
+# Test config init prompts
+oh-config-init
+# Verify: Menu appears, choose option 1, no errors
+
+# For thorough testing of the other shell:
+if [[ -n "$ZSH_VERSION" ]]; then
+    echo "Currently in zsh, test key prompts in bash:"
+    bash -c 'source ./shell/openhands.sh && oh-config-init --global'
+else
+    echo "Currently in bash, test key prompts in zsh:"
+    zsh -c 'source ./shell/openhands.sh && oh-config-init --global'
+fi
+# Verify: No "read: -p: no coprocess" or similar errors
+
+# Restore config
+mv ~/.openhands/config.toml.bak ~/.openhands/config.toml 2>/dev/null
+```
+
 ### Post-Test Cleanup
 
 ```bash
@@ -519,6 +618,38 @@ rm -rf ~/oh-test-projects/"test project spaces" 2>/dev/null
 export OPENHANDS_PROJECTS_DIR="$OPENHANDS_ORIGINAL_PROJECTS_DIR"
 ```
 
+### Config File Tests
+
+#### ( ) Test 15: Config File Support
+
+```bash
+# Create test config
+cat > ~/.openhands/test-config.toml << 'EOF'
+[llm]
+model = "test-model"
+api_key = "test-key-12345"
+
+[core]
+max_iterations = 100
+EOF
+
+# Backup existing config
+[[ -f ~/.openhands/config.toml ]] && mv ~/.openhands/config.toml ~/.openhands/config.toml.bak
+mv ~/.openhands/test-config.toml ~/.openhands/config.toml
+
+# Test config check
+oh-config-check
+# Verify: Shows config would be loaded with masked API key
+
+# Test show-config flag
+oh --show-config test-project-1
+# Verify: Shows configuration for the project
+
+# Restore original config
+rm -f ~/.openhands/config.toml
+[[ -f ~/.openhands/config.toml.bak ]] && mv ~/.openhands/config.toml.bak ~/.openhands/config.toml
+```
+
 ### Test Checklist Summary
 
 Before committing, ensure all tests pass:
@@ -533,6 +664,8 @@ Before committing, ensure all tests pass:
 - ( ) Error messages are helpful
 - ( ) Tab completion functions
 - ( ) Edge cases handled gracefully
+- ( ) Shell compatibility verified (if shell script changes made)
+- ( ) Config file support works (if Python toml module installed)
 - ( ) All containers cleaned up after tests
 
 **Time estimate:** 10-15 minutes for full protocol
@@ -545,6 +678,20 @@ oh-list
 oh-logs test-project-1 | head -5
 oh-stop test-project-1
 oh-clean
+```
+
+**Shell compatibility quick test** (for shell script changes):
+```bash
+# Test key interactive prompts in both shells
+echo "Current shell: $SHELL"
+oh-config-init  # Choose option 1, verify no errors
+
+# Quick cross-shell test
+if [[ -n "$ZSH_VERSION" ]]; then
+    bash -c 'source ./shell/openhands.sh && oh-help >/dev/null && echo "✓ Bash OK"'
+else  
+    zsh -c 'source ./shell/openhands.sh && oh-help >/dev/null && echo "✓ Zsh OK"'
+fi
 ```
 
 --- 
