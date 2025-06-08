@@ -303,6 +303,8 @@ OPENHANDS_LOG_DIR            # Log directory (default: ~/.openhands-logs)
 
 **Note:** Tests use a separate `~/oh-test-projects` directory to avoid interfering with your real projects.
 
+**Environment:** The pre-test setup clears all OpenHands environment variables to ensure consistent testing from a clean state. This prevents leftover settings from affecting test results.
+
 **Shell Compatibility:** The tooling supports both bash and zsh. Shell compatibility tests (Test 14) are only needed when modifying shell scripts, especially interactive prompts or shell-specific syntax.
 
 ### Pre-Test Setup
@@ -311,15 +313,28 @@ OPENHANDS_LOG_DIR            # Log directory (default: ~/.openhands-logs)
 # 1. Ensure Docker Desktop is running
 docker info >/dev/null 2>&1 || echo "ERROR: Start Docker Desktop first"
 
-# 2. Save original projects directory and set test directory
+# 2. Save current environment and unset OpenHands variables for clean testing
 export OPENHANDS_ORIGINAL_PROJECTS_DIR="${OPENHANDS_PROJECTS_DIR:-~/projects}"
+unset OPENHANDS_DEFAULT_VERSION
+unset OPENHANDS_RUNTIME_VERSION
+unset OPENHANDS_PROJECTS_DIR
+unset OPENHANDS_LOG_DIR
+unset OPENHANDS_LOG_RETENTION_DAYS
+unset LLM_MODEL
+unset LLM_API_KEY
+unset SEARCH_API_KEY
+
+# 3. Re-source the script to get fresh defaults
+source shell/openhands.sh
+
+# 4. Set test directory
 export OPENHANDS_PROJECTS_DIR=~/oh-test-projects
 
-# 3. Clean up any existing test containers
+# 5. Clean up any existing test containers
 oh-stop-all
 oh-clean
 
-# 4. Create test project structure (if not exists)
+# 6. Create test project structure (if not exists)
 mkdir -p ~/oh-test-projects/test-project-1
 mkdir -p ~/oh-test-projects/test-category/test-project-2
 mkdir -p ~/oh-test-projects/test-deep/nested/test-project-3
@@ -327,7 +342,7 @@ cd ~/oh-test-projects/test-project-1 && git init . >/dev/null 2>&1
 cd ~/oh-test-projects/test-category/test-project-2 && git init . >/dev/null 2>&1
 cd ~/oh-test-projects/test-deep/nested/test-project-3 && git init . >/dev/null 2>&1
 
-# 5. Return to openhands_local directory
+# 7. Return to openhands_local directory
 cd /path/to/openhands_local
 ```
 
@@ -616,6 +631,9 @@ rm -rf ~/oh-test-projects/"test project spaces" 2>/dev/null
 
 # 5. Restore original OPENHANDS_PROJECTS_DIR
 export OPENHANDS_PROJECTS_DIR="$OPENHANDS_ORIGINAL_PROJECTS_DIR"
+
+# 6. Re-source script if needed to restore your normal environment
+# source shell/openhands.sh
 ```
 
 ### Config File Tests
