@@ -309,6 +309,13 @@ OPENHANDS_LOG_DIR            # Log directory (default: ~/.openhands-logs)
 
 ### Pre-Test Setup
 
+**Option 1: Use the helper script (recommended)**
+```bash
+# From the openhands_local directory:
+source test/clean-test-env.sh
+```
+
+**Option 2: Manual setup**
 ```bash
 # 1. Ensure Docker Desktop is running
 docker info >/dev/null 2>&1 || echo "ERROR: Start Docker Desktop first"
